@@ -1,0 +1,39 @@
+[project]
+name = "driverguard-device"
+version = "0.2.0"
+description = "DriverGuard — софт устройства DMS (MediaPipe, машина состояний, SQLite-очередь, sync)"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    "mediapipe>=0.10.14",
+    "pyyaml>=6",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+sound = ["simpleaudio"]          # или pygame; без них — только лог
+gui = ["opencv-python>=4.9"]      # окно --display вместо headless-сборки
+yolo = ["onnxruntime>=1.17"]      # детектор телефона/курения/ремня (models/*.onnx); Pi 5 — onnxruntime aarch64
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Явный список пакетов. Без него setuptools в «плоской» раскладке находит
+# рядом с dg/ ещё models/ и systemd/ и отказывается ставиться:
+# «Multiple top-level packages discovered in a flat-layout».
+# В Docker ошибка не видна — туда копируется только dg/.
+[tool.setuptools.packages.find]
+include = ["dg*"]

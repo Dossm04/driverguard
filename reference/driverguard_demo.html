@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>DriverGuard — DMS демо</title>
+<style>
+  :root{
+    --bg:#0b1220; --card:#121a2b; --line:#22304a;
+    --txt:#e8eefc; --mut:#8ea0bf;
+    --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; --gray:#64748b;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  body{margin:0; background:var(--bg); color:var(--txt);
+       font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       display:flex; flex-direction:column; min-height:100vh; max-width:520px; margin-inline:auto; padding:12px}
+  header{display:flex; align-items:baseline; gap:8px; padding:4px 2px 10px}
+  header b{font-size:20px; letter-spacing:.5px}
+  header span{color:var(--mut); font-size:12px}
+  #sessionInfo{margin-left:auto; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums}
+
+  /* Видео + оверлей */
+  #videoWrap{position:relative; border-radius:16px; overflow:hidden;
+             border:4px solid var(--gray); transition:border-color .2s; background:#000; aspect-ratio:3/4}
+  #videoWrap.ok{border-color:var(--ok)}
+  #videoWrap.warn{border-color:var(--warn)}
+  #videoWrap.danger{border-color:var(--danger); animation:pulse .5s infinite alternate}
+  @keyframes pulse{from{box-shadow:0 0 0 0 rgba(239,68,68,.6)} to{box-shadow:0 0 26px 6px rgba(239,68,68,.55)}}
+  .mirror{position:absolute; inset:0; width:100%; height:100%; transform:scaleX(-1)}
+  video.mirror{object-fit:cover}
+  #bigStatus{position:absolute; left:0; right:0; bottom:0; padding:10px;
+             text-align:center; font-weight:800; font-size:18px;
+             background:linear-gradient(transparent, rgba(0,0,0,.75)); letter-spacing:.5px}
+
+  #statusText{margin:10px 2px 8px; color:var(--mut); font-size:13px; min-height:18px}
+
+  .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px}
+  .card .v{font-size:22px; font-weight:800; font-variant-numeric:tabular-nums}
+  .card .l{font-size:11px; color:var(--mut); margin-top:2px}
+  #scoreCard .v{color:var(--ok)}
+
+  .btnrow{display:flex; gap:8px; margin:12px 0}
+  button{flex:1; padding:14px 6px; border-radius:12px; border:1px solid var(--line);
+         background:var(--card); color:var(--txt); font-size:15px; font-weight:700}
+  button:disabled{opacity:.4}
+  #btnStart{background:var(--ok); color:#04240f; border:none}
+
+  #log{background:var(--card); border:1px solid var(--line); border-radius:12px;
+       padding:8px; flex:1; overflow-y:auto; min-height:120px; max-height:220px}
+  #log h4{margin:2px 4px 8px; font-size:12px; color:var(--mut); font-weight:600}
+  .ev{display:flex; gap:8px; align-items:center; padding:6px 4px; font-size:13px;
+      border-bottom:1px solid var(--line)}
+  .ev:last-child{border-bottom:none}
+  .dot{width:9px; height:9px; border-radius:50%; flex:none}
+  .ev time{color:var(--mut); font-variant-numeric:tabular-nums; margin-left:auto; font-size:12px}
+
+  footer{text-align:center; color:var(--mut); font-size:11px; padding:10px 0 4px}
+  #banner{display:none; background:#3b1d1d; border:1px solid var(--danger); color:#ffd7d7;
+          padding:10px; border-radius:12px; font-size:13px; margin-bottom:10px}
+</style>
+</head>
+<body>
+<header><b>🛡 DriverGuard</b><span>Edge-AI демо</span><span id="sessionInfo"></span></header>
+<div id="banner"></div>
+
+<div id="videoWrap">
+  <video id="video" class="mirror" playsinline muted autoplay></video>
+  <canvas id="overlay" class="mirror"></canvas>
+  <div id="bigStatus">НАЖМИТЕ «СТАРТ СМЕНЫ»</div>
+</div>
+<div id="statusText">Весь ИИ работает локально на этом телефоне. Интернет нужен только для первой загрузки модели.</div>
+
+<div class="grid">
+  <div class="card" id="scoreCard"><div class="v" id="score">100</div><div class="l">Driver Score</div></div>
+  <div class="card"><div class="v" id="perclos">—</div><div class="l">PERCLOS, %</div></div>
+  <div class="card"><div class="v" id="blinks">0</div><div class="l">Моргания/мин</div></div>
+  <div class="card"><div class="v" id="micro" style="color:var(--danger)">0</div><div class="l">Микросны</div></div>
+  <div class="card"><div class="v" id="yawns" style="color:var(--warn)">0</div><div class="l">Зевота</div></div>
+  <div class="card"><div class="v" id="nods" style="color:var(--warn)">0</div><div class="l">Клевки головой</div></div>
+</div>
+
+<div class="btnrow">
+  <button id="btnStart">▶ Старт смены</button>
+  <button id="btnCalib" disabled>Калибровка</button>
+  <button id="btnReport" disabled>Отчёт ⤓</button>
+</div>
+
+<div id="log"><h4>ЖУРНАЛ СОБЫТИЙ (уйдёт на сервер при появлении сети)</h4></div>
+<footer>DriverGuard MVP · видео не покидает устройство · прототип для менторской сессии</footer>
+
+<script type="module">
+import { FaceLandmarker, FilesetResolver, DrawingUtils }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+/* ─────────── ПОРОГИ ДЕТЕКЦИИ (те же поедут на Raspberry Pi) ─────────── */
+const TH = {
+  EYE_BS: 0.5,        // blendshape eyeBlink: > 0.5 = глаз закрыт
+  MICROSLEEP_MS: 1500,// глаза закрыты дольше → МИКРОСОН
+  BLINK_MIN: 60, BLINK_MAX: 500,   // длительность обычного моргания, мс
+  PERCLOS_WIN: 60000, // окно PERCLOS, мс
+  PERCLOS_WARN: 0.20, // > 20% времени глаза закрыты → усталость
+  JAW: 0.5, YAWN_MS: 1200,         // зевота: рот открыт > 1.2 c
+  NOD_DELTA: 0.13, NOD_MS: 2000,   // клевок: отклонение наклона головы от калибровки
+  NOFACE_MS: 3000,    // нет лица дольше → предупреждение (антисаботаж)
+  CALIB_FRAMES: 60    // кадров на калибровку (~2–3 сек)
+};
+const SCORE_DELTA = { microsleep:-15, nod:-5, yawn:-2, perclos:-2, noface:-3 };
+
+/* ─────────── СОСТОЯНИЕ ─────────── */
+const S = {
+  running:false, landmarker:null, lastVideoTime:-1,
+  eyesClosed:false, closedSince:0, microsleepActive:false,
+  blinkTimes:[], perclosBuf:[],
+  yawnSince:0, yawnCounted:false, perclosWarnUntil:0,
+  nodSince:0, nodCounted:false,
+  noFaceSince:0, noFaceCounted:false,
+  counters:{micro:0, yawns:0, nods:0},
+  score:100, events:[], sessionStart:0,
+  calibrating:false, calibBuf:[], basePitch:null,
+  fpsTimes:[]
+};
+
+/* ─────────── DOM ─────────── */
+const $ = id => document.getElementById(id);
+const video=$("video"), canvas=$("overlay"), ctx=canvas.getContext("2d");
+const wrap=$("videoWrap"), big=$("bigStatus"), statusText=$("statusText");
+let du=null, wakeLock=null, AC=null;
+
+/* ─────────── ЗВУК И ВИБРАЦИЯ ─────────── */
+function beep(freq=880,dur=140,type="sine",vol=.3){
+  if(!AC) return;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type; o.frequency.value=freq; g.gain.value=vol;
+  o.connect(g); g.connect(AC.destination);
+  o.start(); o.stop(AC.currentTime+dur/1000);
+}
+function warnSound(){ beep(880,120); setTimeout(()=>beep(880,120),180); }
+let siren=null;
+function sirenOn(){
+  if(siren) return; let hi=true;
+  siren=setInterval(()=>{ beep(hi?1250:820,180,"square",.4); hi=!hi; },230);
+  navigator.vibrate && navigator.vibrate([400,120,400,120,600]);
+}
+function sirenOff(){ clearInterval(siren); siren=null; }
+
+/* ─────────── УТИЛИТЫ ─────────── */
+const dist=(a,b)=>Math.hypot(a.x-b.x, a.y-b.y);
+// Классический EAR (Eye Aspect Ratio) — для отображения и как резерв к blendshapes
+function EAR(lm,[p1,p2,p3,p4,p5,p6]){
+  return (dist(lm[p2],lm[p6])+dist(lm[p3],lm[p5]))/(2*dist(lm[p1],lm[p4])||1e-6);
+}
+const L_EYE=[33,160,158,133,153,144], R_EYE=[362,385,387,263,373,380];
+// Прокси наклона головы (кивок вниз): разница глубины (z) подбородка (152) и лба (10)
+const pitchProxy = lm => lm[152].z - lm[10].z;
+
+function fmtTime(ms){ const s=Math.floor(ms/1000); return `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`; }
+
+function addEvent(title, sev, key){
+  const now=new Date();
+  S.events.push({ts:now.toISOString(), type:title, severity:sev});
+  if(key && SCORE_DELTA[key]!==undefined){
+    S.score=Math.max(0, S.score+SCORE_DELTA[key]);
+    $("score").textContent=S.score;
+    $("score").style.color = S.score>=85?"var(--ok)":S.score>=70?"var(--warn)":"var(--danger)";
+  }
+  const row=document.createElement("div"); row.className="ev";
+  const color = sev==="danger"?"var(--danger)":sev==="warn"?"var(--warn)":"var(--gray)";
+  row.innerHTML=`<span class="dot" style="background:${color}"></span>
+                 <span>${title}</span><time>${now.toLocaleTimeString("ru-RU")}</time>`;
+  const log=$("log"); log.insertBefore(row, log.children[1]||null);
+}
+
+function setStatus(cls, bigText, subText){
+  wrap.className=cls?cls:""; wrap.id="videoWrap";
+  big.textContent=bigText; if(subText!==undefined) statusText.textContent=subText;
+}
+
+/* ─────────── СТАРТ ─────────── */
+$("btnStart").onclick = async ()=>{
+  if(location.protocol!=="https:" && location.hostname!=="localhost"){
+    $("banner").style.display="block";
+    $("banner").textContent="Камера в браузере работает только по HTTPS. Разверните файл на Netlify Drop или GitHub Pages и откройте по https-ссылке.";
+    return;
+  }
+  const btn=$("btnStart"); btn.disabled=true; btn.textContent="Загрузка ИИ…";
+  try{
+    AC = new (window.AudioContext||window.webkitAudioContext)(); AC.resume();
+    try{ wakeLock = await navigator.wakeLock?.request("screen"); }catch(e){}
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:"user", width:{ideal:640}, height:{ideal:480}}, audio:false
+    });
+    video.srcObject=stream; await video.play();
+    canvas.width=video.videoWidth; canvas.height=video.videoHeight;
+    du = new DrawingUtils(ctx);
+
+    if(!S.landmarker){
+      const fileset = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+      S.landmarker = await FaceLandmarker.createFromOptions(fileset,{
+        baseOptions:{
+          modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+          delegate:"GPU"
+        },
+        runningMode:"VIDEO", numFaces:1, outputFaceBlendshapes:true
+      });
+    }
+    S.running=true; S.sessionStart=Date.now();
+    startCalibration();
+    $("btnCalib").disabled=false; $("btnReport").disabled=false;
+    btn.textContent="Идёт смена";
+    requestAnimationFrame(loop);
+  }catch(err){
+    btn.disabled=false; btn.textContent="▶ Старт смены";
+    $("banner").style.display="block";
+    $("banner").textContent="Не удалось получить камеру: "+err.message+". Проверьте разрешение на камеру в настройках браузера.";
+  }
+};
+
+$("btnCalib").onclick = startCalibration;
+function startCalibration(){
+  S.calibrating=true; S.calibBuf=[];
+  setStatus("", "КАЛИБРОВКА…", "Смотрите прямо в камеру, обычная посадка. 3 секунды.");
+}
+
+/* ─────────── ОТЧЁТ (то, что sync-агент отправит на бэкенд) ─────────── */
+$("btnReport").onclick = ()=>{
+  const report={
+    device:"phone-demo", driver_id:"demo",
+    session:{ start:new Date(S.sessionStart).toISOString(),
+              end:new Date().toISOString(),
+              duration_sec:Math.round((Date.now()-S.sessionStart)/1000) },
+    totals:{ microsleeps:S.counters.micro, yawns:S.counters.yawns,
+             head_nods:S.counters.nods, events:S.events.length },
+    driver_score:S.score, events:S.events
+  };
+  const blob=new Blob([JSON.stringify(report,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download="driverguard_report.json"; a.click();
+};
+
+/* ─────────── ГЛАВНЫЙ ЦИКЛ ─────────── */
+function loop(){
+  if(!S.running) return;
+  if(video.currentTime!==S.lastVideoTime){
+    S.lastVideoTime=video.currentTime;
+    const res = S.landmarker.detectForVideo(video, performance.now());
+    process(res, Date.now());
+  }
+  requestAnimationFrame(loop);
+}
+
+function process(res, now){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  /* FPS + таймер смены */
+  S.fpsTimes.push(now); while(S.fpsTimes[0]<now-2000) S.fpsTimes.shift();
+  $("sessionInfo").textContent =
+    `⏱ ${fmtTime(now-S.sessionStart)} · ${Math.round(S.fpsTimes.length/2)} FPS`;
+
+  const face = res.faceLandmarks && res.faceLandmarks[0];
+
+  /* ── Нет лица: антисаботаж ── */
+  if(!face){
+    if(!S.noFaceSince) S.noFaceSince=now;
+    if(now-S.noFaceSince>TH.NOFACE_MS && !S.noFaceCounted){
+      S.noFaceCounted=true;
+      addEvent("Лицо не обнаружено (возможен саботаж)","warn","noface");
+      warnSound();
+    }
+    if(now-S.noFaceSince>TH.NOFACE_MS)
+      setStatus("warn","ЛИЦО НЕ ОБНАРУЖЕНО","Камера перекрыта или водитель вне кадра.");
+    if(S.microsleepActive){ S.microsleepActive=false; sirenOff(); }
+    S.eyesClosed=false;
+    return;
+  }
+  S.noFaceSince=0; S.noFaceCounted=false;
+
+  /* ── Извлекаем сигналы ── */
+  const bs={};
+  res.faceBlendshapes[0].categories.forEach(c=>bs[c.categoryName]=c.score);
+  const eyeClose=((bs.eyeBlinkLeft||0)+(bs.eyeBlinkRight||0))/2;   // 0..1
+  const jaw=bs.jawOpen||0;
+  const ear=(EAR(face,L_EYE)+EAR(face,R_EYE))/2;                   // справочно
+  const pitch=pitchProxy(face);
+
+  /* ── Калибровка персонального базового наклона головы ── */
+  if(S.calibrating){
+    S.calibBuf.push(pitch);
+    drawFace(face,"#38bdf8");
+    if(S.calibBuf.length>=TH.CALIB_FRAMES){
+      S.basePitch=S.calibBuf.reduce((a,b)=>a+b,0)/S.calibBuf.length;
+      S.calibrating=false;
+      addEvent("Калибровка завершена — пороги персонализированы","info");
+      setStatus("ok","ВСЁ В НОРМЕ","Система следит за признаками усталости. EAR: "+ear.toFixed(2));
+    }
+    return;
+  }
+
+  /* ── PERCLOS: доля времени с закрытыми глазами за 60 сек ── */
+  const closed = eyeClose > TH.EYE_BS;
+  S.perclosBuf.push({t:now, c:closed});
+  while(S.perclosBuf.length && S.perclosBuf[0].t < now-TH.PERCLOS_WIN) S.perclosBuf.shift();
+  let perclos=0;
+  if(S.perclosBuf.length>30 && now-S.perclosBuf[0].t>15000){
+    perclos=S.perclosBuf.filter(p=>p.c).length/S.perclosBuf.length;
+    $("perclos").textContent=(perclos*100).toFixed(0);
+    if(perclos>TH.PERCLOS_WARN && now>S.perclosWarnUntil){
+      S.perclosWarnUntil=now+30000;                     // не чаще раза в 30 с
+      addEvent("Повышенная усталость (PERCLOS "+(perclos*100).toFixed(0)+"%)","warn","perclos");
+      warnSound();
+    }
+  }
+
+  /* ── Моргания и МИКРОСОН ── */
+  if(closed && !S.eyesClosed){ S.eyesClosed=true; S.closedSince=now; }
+  if(!closed && S.eyesClosed){
+    const d=now-S.closedSince; S.eyesClosed=false;
+    if(d>=TH.BLINK_MIN && d<=TH.BLINK_MAX) S.blinkTimes.push(now);
+    if(S.microsleepActive){                             // водитель проснулся
+      S.microsleepActive=false; sirenOff();
+      addEvent("Водитель отреагировал, глаза открыты","info");
+    }
+  }
+  if(S.eyesClosed && !S.microsleepActive && now-S.closedSince>=TH.MICROSLEEP_MS){
+    S.microsleepActive=true; S.counters.micro++;
+    $("micro").textContent=S.counters.micro;
+    addEvent("⚠ МИКРОСОН — глаза закрыты > "+(TH.MICROSLEEP_MS/1000)+" c","danger","microsleep");
+    sirenOn();
+  }
+  while(S.blinkTimes.length && S.blinkTimes[0]<now-60000) S.blinkTimes.shift();
+  $("blinks").textContent=S.blinkTimes.length;
+
+  /* ── Зевота ── */
+  if(jaw>TH.JAW){
+    if(!S.yawnSince) S.yawnSince=now;
+    if(now-S.yawnSince>TH.YAWN_MS && !S.yawnCounted){
+      S.yawnCounted=true; S.counters.yawns++;
+      $("yawns").textContent=S.counters.yawns;
+      addEvent("Зевота — признак утомления","warn","yawn"); warnSound();
+    }
+  } else { S.yawnSince=0; if(jaw<0.3) S.yawnCounted=false; }
+
+  /* ── Клевок головой ── */
+  const nodDev = S.basePitch===null ? 0 : (pitch - S.basePitch);
+  if(nodDev>TH.NOD_DELTA){
+    if(!S.nodSince) S.nodSince=now;
+    if(now-S.nodSince>TH.NOD_MS && !S.nodCounted){
+      S.nodCounted=true; S.counters.nods++;
+      $("nods").textContent=S.counters.nods;
+      addEvent("Клевок головой / голова опущена","warn","nod"); warnSound();
+    }
+  } else { S.nodSince=0; S.nodCounted=false; }
+
+  /* ── Статус и отрисовка ── */
+  if(S.microsleepActive){
+    setStatus("danger","🚨 МИКРОСОН! ПРОСНИТЕСЬ!","Каскад алертов: сирена + вибрация. На грузовике добавится вибрация сиденья.");
+    drawFace(face,"#ef4444");
+  } else if(perclos>TH.PERCLOS_WARN || S.eyesClosed && now-S.closedSince>600 || nodDev>TH.NOD_DELTA){
+    setStatus("warn","ПОВЫШЕННАЯ УСТАЛОСТЬ","Рекомендация: перерыв на ближайшей стоянке.");
+    drawFace(face,"#f59e0b");
+  } else {
+    setStatus("ok","ВСЁ В НОРМЕ",
+      `EAR ${ear.toFixed(2)} · закрытие глаз ${(eyeClose*100).toFixed(0)}% · наклон Δ${nodDev.toFixed(2)}`);
+    drawFace(face,"#22c55e");
+  }
+}
+
+function drawFace(lm,color){
+  const th={color, lineWidth:1.5}, thin={color:color+"55", lineWidth:1};
+  du.drawConnectors(lm, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, thin);
+  du.drawConnectors(lm, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,  th);
+  du.drawConnectors(lm, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, th);
+  du.drawConnectors(lm, FaceLandmarker.FACE_LANDMARKS_LIPS,      th);
+}
+</script>
+</body>
+</html>

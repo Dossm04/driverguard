@@ -1,0 +1,75 @@
+# DriverGuard device — конфигурация (DEV-24). Переопределения: DG_SERIAL, DG_SECRET, DG_API_URL.
+device:
+  serial: DG-0001
+  secret: device-secret-1          # из seed backend (docs/api.md); на проде — выдаётся при регистрации
+  api_url: http://localhost:8000/api/v1
+  fw_version: "0.2.0"
+  model_version: coco-yolov8n     # версия детектора нарушений (ML-4): registry.py promote меняет; на запуске — из ONNX
+  profile: highway                 # highway | city (DEV-26)
+
+camera:
+  width: 640
+  height: 480
+  fps: 30
+
+thresholds:                        # те же, что в reference/driverguard_demo.html (DEV-3…DEV-16)
+  EYE_BS: 0.5                      # eyeBlink ≥ 0.5 — глаз закрыт
+  MICROSLEEP_MS: 1500              # глаза закрыты дольше → microsleep (critical); настраивается 1000–3000
+  BLINK_MIN_MS: 60
+  BLINK_MAX_MS: 500
+  PERCLOS_WIN_MS: 60000
+  PERCLOS_WARN: 0.20               # ≥ 20 % времени глаза закрыты → fatigue (warning), не чаще 1/30 с
+  PERCLOS_COOLDOWN_MS: 30000
+  JAW: 0.5
+  YAWN_MS: 1200
+  YAWNS_PER_10MIN: 3               # ≥ 3 зевоты за 10 мин → fatigue
+  NOD_DELTA: 0.13                  # отклонение наклона головы от калибровки
+  NOD_MS: 2000
+  NOFACE_MS: 3000                  # нет лица → локальное предупреждение
+  SABOTAGE_MS: 300000              # нет лица ≥ 5 мин при движении → camera_sabotage (critical)
+  YAW_DELTA: 0.35                  # поворот головы от дороги (прокси по ключевым точкам)
+  DISTRACTION_MS: 8000
+  DISTRACTION_CRIT_MS: 15000
+  DISTRACTION_MIN_KMH: 20
+  SPEEDING_MS: 10000
+  speed_limit_highway: 90
+  speed_limit_city: 60
+  CALIB_FRAMES: 60                 # ~2–3 с: персональная база наклона/EAR (DEV-14)
+  CONFIRM_FRAMES: 3                # антидребезг: состояние засчитывается после N кадров подряд (DEV-16)
+  COOLDOWN_MS: 30000               # cooldown на тип события
+  MIN_CONFIDENCE: 0.6              # события ниже не отправляются
+  PHONE_CONF: 0.6                  # DEV-8: телефон у лица с такой уверенностью…
+  PHONE_MS: 2000                   # …дольше 2 с при > 5 км/ч → phone (critical)
+  SMOKE_CONF: 0.5                  # DEV-9: сигарета/вейп у лица…
+  SMOKING_MS: 3000                 # …дольше 3 с → smoking (warning)
+  SEATBELT_CONF: 0.5               # DEV-10 (beta): ремень не пристёгнут…
+  SEATBELT_MS: 30000               # …дольше 30 с при > SEATBELT_MIN_KMH → seatbelt (warning), один раз до пристёгивания
+  SEATBELT_MIN_KMH: 20
+
+clip:                              # DEV-17
+  buffer_s: 20
+  pre_s: 10
+  post_s: 5
+  dir: clips
+
+storage:
+  db_path: dg.sqlite               # DEV-18
+
+sync:                              # DEV-19
+  check_s: 30
+  batch: 100
+  backoff_min_s: 30
+  backoff_max_s: 600
+
+detector:                          # DEV-8…DEV-10: YOLOv8-ONNX через onnxruntime (pip install -e ".[yolo]")
+  enabled: "auto"                  # auto — если есть модель и onnxruntime; "on" | "off"
+  model: models/yolov8n-coco.onnx  # COCO «cell phone» до своей модели; ml/scripts/registry.py promote vN подменит
+  interval_ms: 250                 # ~4 инференса/с (ноутбук ~40 мс на кадр, Pi 5 CPU ~300 мс → 500)
+  conf: 0.35                       # порог детектора; пороги событий — PHONE_CONF/SMOKE_CONF/SEATBELT_CONF выше
+  near_face: 1.8                   # телефон/сигарета засчитываются в зоне бокса лица × 1.8 (телефон на панели — нет)
+  threads: 2
+
+heartbeat_s: 600                   # DEV-23: раз в 10 минут
+alerts:
+  volume_day: 0.8
+  volume_night: 0.5

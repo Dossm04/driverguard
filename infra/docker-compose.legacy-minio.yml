@@ -1,0 +1,188 @@
+# DriverGuard — инфраструктура для локальной разработки и полного стека.
+#
+# По умолчанию `docker compose up -d` поднимает только db + minio (+ minio-init):
+# backend и web в разработке запускаются dev-серверами на хосте (uvicorn --reload,
+# npm run dev). Полный стек в контейнерах — через профиль "full":
+#   docker compose -f infra/docker-compose.yml --profile full up -d --build
+
+name: driverguard
+
+services:
+  # PostgreSQL — основная БД
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-driverguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-driverguard}
+      POSTGRES_DB: ${POSTGRES_DB:-driverguard}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"   # только с хоста; DB_PORT=15432, если 5432 занят локальным PostgreSQL
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-driverguard} -d ${POSTGRES_DB:-driverguard}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # MinIO — S3-совместимое хранилище клипов и фото
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:9000:9000" # для LAN явно задайте HOST_BIND=0.0.0.0
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"   # веб-консоль — только с хоста
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Одноразовая инициализация: создаёт бакеты clips и photos
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET_CLIPS: ${MINIO_BUCKET_CLIPS:-clips}
+      MINIO_BUCKET_PHOTOS: ${MINIO_BUCKET_PHOTOS:-photos}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
+      mc mb --ignore-existing local/$$MINIO_BUCKET_CLIPS &&
+      mc mb --ignore-existing local/$$MINIO_BUCKET_PHOTOS &&
+      echo 'Бакеты clips и photos готовы'
+      "
+
+  # --- Профиль "full": весь стек в контейнерах (для демо/прода, не для dev) ---
+
+  backend:
+    build: ../backend
+    profiles: ["full"]
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully   # бакеты clips/photos уже созданы
+    environment:
+      # Внутри compose-сети хосты — имена сервисов, а не localhost
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-driverguard}:${POSTGRES_PASSWORD:-driverguard}@db:5432/${POSTGRES_DB:-driverguard}
+      MINIO_ENDPOINT: http://minio:9000
+      # Presigned-ссылки открывает браузер снаружи compose-сети
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET_CLIPS: ${MINIO_BUCKET_CLIPS:-clips}
+      MINIO_BUCKET_PHOTOS: ${MINIO_BUCKET_PHOTOS:-photos}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET не задан в infra/.env — make demo (или make secrets-check FIX=1) сгенерирует}
+      AI_PROVIDER: ${AI_PROVIDER:-auto}
+      SEED: ${SEED:-auto}            # auto — демо-данные при пустой базе; always — пересеять; never
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}   # пароль admin@driverguard.kz при seed (пусто = admin123, только для dev)
+      DRIVER_PIN: ${DRIVER_PIN:-}           # PIN демо-водителей при seed (пусто = 1234)
+      DG_SECRET: ${DG_SECRET:-device-secret-1}   # секрет DG-0001 при seed (device-sim использует тот же)
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      CORS_ORIGIN_REGEX: ${CORS_ORIGIN_REGEX:-}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      APP_TZ: ${APP_TZ:-Asia/Almaty}
+      GEMINI_THINKING_LEVEL: ${GEMINI_THINKING_LEVEL:-}
+      BOT_PASSWORD: ${BOT_PASSWORD:-bot12345}
+      OPENAI_COMPAT_BASE_URL: ${OPENAI_COMPAT_BASE_URL:-}
+      OPENAI_COMPAT_API_KEY: ${OPENAI_COMPAT_API_KEY:-}
+      OPENAI_COMPAT_MODEL: ${OPENAI_COMPAT_MODEL:-gemma4}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # production-стандарты: логи, доверие прокси (Cloudflare Tunnel), лимиты, пул БД
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      RATE_LIMIT_AUTH_PER_MIN: ${RATE_LIMIT_AUTH_PER_MIN:-120}
+      RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-1200}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-30}
+      WORKER_THREADS: ${WORKER_THREADS:-100}
+    restart: unless-stopped
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=4)"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  web:
+    build:
+      context: ../web
+      args:  # адреса backend вшиваются в бандл при сборке (Next.js NEXT_PUBLIC_*)
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8000/ws/live}
+        NEXT_PUBLIC_MAP_TILES_LIGHT: ${NEXT_PUBLIC_MAP_TILES_LIGHT:-}
+        NEXT_PUBLIC_MAP_TILES_DARK: ${NEXT_PUBLIC_MAP_TILES_DARK:-}
+        NEXT_PUBLIC_MP_WASM_URL: ${NEXT_PUBLIC_MP_WASM_URL:-}
+        NEXT_PUBLIC_DEMO_HINTS: ${NEXT_PUBLIC_DEMO_HINTS:-}   # 1 — показывать демо-пароли на экранах входа (не для публичного стенда)
+    profiles: ["full"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8000/ws/live}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/login"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:3000:3000"
+
+  # Telegram-бот координатора (ШАГ 12, docs/telegram.md): docker compose --profile full up -d bot
+  bot:
+    build: ../bot
+    profiles: ["full"]
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      API_URL: http://backend:8000/api/v1
+      BOT_EMAIL: ${BOT_EMAIL:-bot@driverguard.kz}
+      BOT_PASSWORD: ${BOT_PASSWORD:-bot12345}
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      TZ: ${TZ:-Asia/Almaty}
+      TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-}
+
+  # Симулятор устройства в кабине (ШАГ 14/15): события и движение по трассе без камеры
+  device-sim:
+    build: ../device
+    profiles: ["full"]
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      DG_API_URL: http://backend:8000/api/v1
+      DG_SERIAL: ${DG_SERIAL:-DG-0001}
+      DG_SECRET: ${DG_SECRET:-device-secret-1}
+
+volumes:
+  pgdata:
+  miniodata:

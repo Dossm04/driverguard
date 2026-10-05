@@ -1,0 +1,10 @@
+# данные, прогоны и веса — вне git (реестр ml/models/registry.json — в git)
+data/
+runs/
+models/*.pt
+models/*.onnx
+models/*.hef
+models/calib_*/
+models/*.npy
+*.pt
+.venv/

@@ -1,0 +1,146 @@
+/* leaflet.css импортируется ЗДЕСЬ (а не в компоненте), чтобы наши override'ы
+   ниже гарантированно шли после него в каскаде */
+@import "leaflet/dist/leaflet.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Дизайн-токены DriverGuard (CLAUDE.md). Значения — RGB-триплеты, чтобы работали
+   прозрачности Tailwind (bg-ok/15 для статус-пилюль). Светлая тема — :root,
+   тёмная (по умолчанию через next-themes) — .dark. */
+@layer base {
+  /* .light — принудительно светлый блок внутри тёмной темы (витрина /design-system) */
+  :root,
+  .light {
+    --bg: 244 246 251; /* #F4F6FB */
+    --sidebar: 255 255 255; /* #FFFFFF */
+    --card: 255 255 255; /* #FFFFFF */
+    --card-hover: 248 250 255; /* #F8FAFF */
+    --line: 228 233 242; /* #E4E9F2 */
+    --txt: 15 23 42; /* #0F172A */
+    --mut: 100 116 139; /* #64748B */
+    --accent: 37 99 235; /* #2563EB */
+    --ok: 22 163 74; /* #16A34A */
+    --warn: 217 119 6; /* #D97706 */
+    --danger: 220 38 38; /* #DC2626 */
+    --offline: 148 163 184; /* #94A3B8 */
+    --onaccent: 255 255 255; /* текст на залитых accent/ok/danger */
+    /* Категориальная палитра графиков (проверена валидатором dataviz: CVD, контраст).
+       Порядок фиксированный, цвет закреплён за типом события (lib/events.ts). */
+    --cat-1: 220 38 38; /* #DC2626 */
+    --cat-2: 8 145 178; /* #0891B2 */
+    --cat-3: 194 65 12; /* #C2410C */
+    --cat-4: 124 58 237; /* #7C3AED */
+    --cat-5: 161 98 7; /* #A16207 */
+    --cat-6: 37 99 235; /* #2563EB */
+    --cat-7: 219 39 119; /* #DB2777 */
+    --cat-8: 21 128 61; /* #15803D */
+  }
+  .dark {
+    --bg: 15 21 35; /* #0F1523 */
+    --sidebar: 12 17 32; /* #0C1120 */
+    --card: 21 28 46; /* #151C2E */
+    --card-hover: 26 35 56; /* #1A2338 */
+    --line: 31 42 63; /* #1F2A3F */
+    --txt: 230 235 245; /* #E6EBF5 */
+    --mut: 139 152 179; /* #8B98B3 */
+    --accent: 59 130 246; /* #3B82F6 */
+    --ok: 34 197 94; /* #22C55E */
+    --warn: 245 158 11; /* #F59E0B */
+    --danger: 239 68 68; /* #EF4444 */
+    --offline: 100 116 139; /* #64748B */
+    --onaccent: 255 255 255;
+    --cat-1: 239 68 68; /* #EF4444 */
+    --cat-2: 8 145 178; /* #0891B2 */
+    --cat-3: 234 88 12; /* #EA580C */
+    --cat-4: 139 92 246; /* #8B5CF6 */
+    --cat-5: 180 83 9; /* #B45309 */
+    --cat-6: 59 130 246; /* #3B82F6 */
+    --cat-7: 236 72 153; /* #EC4899 */
+    --cat-8: 22 163 74; /* #16A34A */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-line;
+  }
+  body {
+    @apply bg-page text-txt antialiased;
+  }
+}
+
+@layer utilities {
+  /* Цифры — tabular-nums (правило дизайн-системы) */
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ── Live-карта: маркеры машин и темизация leaflet (цвета только токенами) ── */
+/* Тёмная подложка из светлых тайлов OpenStreetMap: инверсия + поворот оттенка
+   (CARTO dark_all требует API-ключ, см. NEXT_PUBLIC_MAP_TILES_DARK) */
+.tiles-dark {
+  filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(0.9) saturate(0.55);
+}
+.dg-mk {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  border: 2.5px solid;
+  background: rgb(var(--card));
+  box-shadow: 0 2px 10px rgb(var(--bg) / 0.6);
+}
+.dg-mk-ok {
+  border-color: rgb(var(--ok));
+}
+.dg-mk-warn {
+  border-color: rgb(var(--warn));
+}
+.dg-mk-offline {
+  border-color: rgb(var(--offline));
+  filter: grayscale(0.7);
+  opacity: 0.85;
+}
+.dg-mk-danger {
+  border-color: rgb(var(--danger));
+  animation: dg-pulse 1.1s infinite;
+}
+@keyframes dg-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(var(--danger) / 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgb(var(--danger) / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(var(--danger) / 0);
+  }
+}
+.leaflet-container {
+  background: rgb(var(--bg));
+  font-family: inherit;
+}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: rgb(var(--card));
+  color: rgb(var(--txt));
+  border: 1px solid rgb(var(--line));
+  box-shadow: 0 10px 30px rgb(var(--bg) / 0.5);
+}
+.leaflet-popup-content {
+  margin: 12px 14px;
+  font-family: inherit;
+}
+.leaflet-container a.leaflet-popup-close-button {
+  color: rgb(var(--mut));
+}
+.leaflet-bar a {
+  background: rgb(var(--card));
+  color: rgb(var(--txt));
+  border-color: rgb(var(--line));
+}

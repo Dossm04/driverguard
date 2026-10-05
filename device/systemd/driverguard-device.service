@@ -1,0 +1,25 @@
+# /etc/systemd/system/driverguard-device.service — DMS в кабине (Raspberry Pi 5 / ноутбук)
+[Unit]
+Description=DriverGuard device (DMS, SQLite queue, sync)
+After=network-online.target gpsd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=driverguard
+SupplementaryGroups=video audio
+# SQLite, клипы и кэш модели — в каталогах systemd, а не в root-owned /opt
+StateDirectory=driverguard
+CacheDirectory=driverguard
+Environment=HOME=/var/lib/driverguard
+WorkingDirectory=/var/lib/driverguard
+EnvironmentFile=-/etc/driverguard/device.env
+ExecStart=/opt/driverguard/device/.venv/bin/python -m dg --source 0 --config /etc/driverguard/config.yaml
+Restart=always
+RestartSec=5
+# код 3 = backend запросил перезагрузку: systemd перезапустит процесс
+SuccessExitStatus=3
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

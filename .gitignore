@@ -1,0 +1,62 @@
+# Зависимости и сборки
+node_modules/
+.next/
+dist/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+
+# Секреты и локальные конфиги
+.env
+.env.local
+.runtime/
+
+# ОС и временные файлы
+.DS_Store
+docs/screens/*.tmp
+
+# Playwright
+web/test-results/
+web/playwright-report/
+
+# device: локальная очередь и клипы
+device/*.sqlite
+device/*.sqlite-*
+device/clips/
+device/**/__pycache__/
+
+# Docker Desktop: виртуальный диск, если выбран путь внутри проекта
+DockerDesktopWSL/
+*.vhdx
+
+# доступы менторов (генерируются scripts/mentors.py, содержат пароли)
+backend/mentors*.csv
+backups/
+
+# модель MediaPipe качается при сборке (web/Dockerfile) или вручную
+web/public/models/
+
+# Local secrets and training outputs
+.env.*
+!.env.example
+!.env.*.example
+ROBOFLOW_KEY*
+*PRIVATE*.txt
+*.pem
+*.key
+*.p12
+training/До_исправления*/
+**/runs/
+**/prepared*/
+**/raw/
+*.pt
+*.onnx
+*.task
+*.zip
+*.tsbuildinfo
+*.orig

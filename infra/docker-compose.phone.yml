@@ -1,0 +1,10 @@
+# Temporary HTTPS access for the iPhone camera. No database or S3 ports exposed.
+services:
+  phone-api:
+    image: cloudflare/cloudflared@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    command: tunnel --no-autoupdate --protocol http2 --url http://backend:8000
+    restart: "no"
+  phone-web:
+    image: cloudflare/cloudflared@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    command: tunnel --no-autoupdate --protocol http2 --url http://web:3000
+    restart: "no"

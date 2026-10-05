@@ -1,0 +1,35 @@
+[project]
+name = "driverguard-ml"
+version = "0.1.0"
+description = "DriverGuard — ML-контур: датасет, обучение YOLOv8, оценка, экспорт ONNX, реестр версий, стендовый протокол"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    "pyyaml>=6",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+# Обучение/экспорт: ставится в Colab или на ноутбук с GPU/CPU (torch тянется ultralytics)
+train = ["ultralytics>=8.2", "onnx>=1.16", "onnxruntime>=1.17", "onnxslim>=0.1.30"]
+dev = ["pytest", "ruff"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["dgml"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["notebooks"]  # ячейки Colab с !командами — не Python-модули
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

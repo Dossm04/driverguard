@@ -1,0 +1,206 @@
+# CI DriverGuard (PRODUCTION_STANDARDS 3): линтеры и тесты каждого сервиса, сборка web,
+# e2e поверх живого стека, сборка docker-образов. Запускается на push и pull request.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "22"
+  MINIO_ROOT_PASSWORD: "minioadmin"  # isolated CI fixture, never a deployment secret
+  # backend не стартует со слабым JWT_SECRET; в CI — фиксированный тестовый (не секрет)
+  JWT_SECRET: "ci-only-0123456789abcdef0123456789abcdef0123456789abcdef"
+
+jobs:
+  backend:
+    name: backend · ruff + pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: driverguard
+          POSTGRES_PASSWORD: driverguard
+          POSTGRES_DB: driverguard
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U driverguard"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: SeaweedFS S3 (бакеты photos/clips)
+        run: |
+          docker run -d --name s3 -p 9000:9000 \
+            -e AWS_ACCESS_KEY_ID=minioadmin -e AWS_SECRET_ACCESS_KEY="$MINIO_ROOT_PASSWORD" \
+            -e S3_BUCKET=photos,clips \
+            chrislusf/seaweedfs@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d \
+            mini -dir=/data -s3.port=9000
+          ready=0
+          for i in $(seq 1 60); do
+            if docker exec s3 wget -qO- http://127.0.0.1:9333/cluster/status; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != "1" ]; then docker logs s3; exit 1; fi
+      - name: Установка
+        working-directory: backend
+        run: pip install -e ".[dev]"
+      - name: Ruff
+        working-directory: backend
+        run: ruff check . && ruff format --check .
+      - name: Миграции применяются с нуля
+        working-directory: backend
+        run: alembic upgrade head
+      - name: Pytest
+        working-directory: backend
+        run: pytest -q
+      - name: pip-audit
+        working-directory: backend
+        continue-on-error: true   # сигнал в логе, сборку не роняет
+        run: pip install pip-audit && pip-audit --progress-spinner off
+
+  web:
+    name: web · lint + build + unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - working-directory: web
+        run: npm ci
+      - working-directory: web
+        run: npm run lint
+      - working-directory: web
+        run: npx tsc --noEmit
+      - working-directory: web
+        run: npm run build
+      - name: Chromium для юнит-тестов правил DMS
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - working-directory: web
+        run: npm run test:unit
+      - name: npm audit (prod-зависимости)
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=high
+
+  python-services:
+    name: ${{ matrix.service }} · ruff + pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [device, bot, ml]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: ${{ matrix.service }}/pyproject.toml
+      - working-directory: ${{ matrix.service }}
+        run: pip install -e ".[dev]"
+      - working-directory: ${{ matrix.service }}
+        run: ruff check .
+      - working-directory: ${{ matrix.service }}
+        run: pytest -q
+
+  e2e:
+    name: e2e · Playwright поверх живого стека
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [backend, web]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: driverguard
+          POSTGRES_PASSWORD: driverguard
+          POSTGRES_DB: driverguard
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U driverguard"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: SeaweedFS S3 (бакеты photos/clips)
+        run: |
+          docker run -d --name s3 -p 9000:9000 \
+            -e AWS_ACCESS_KEY_ID=minioadmin -e AWS_SECRET_ACCESS_KEY="$MINIO_ROOT_PASSWORD" \
+            -e S3_BUCKET=photos,clips \
+            chrislusf/seaweedfs@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d \
+            mini -dir=/data -s3.port=9000
+          ready=0
+          for i in $(seq 1 60); do
+            if docker exec s3 wget -qO- http://127.0.0.1:9333/cluster/status; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != "1" ]; then docker logs s3; exit 1; fi
+      - name: Backend
+        working-directory: backend
+        env:
+          AI_PROVIDER: mock
+          DEMO_MODE: "true"
+        run: |
+          python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+          .venv/bin/alembic upgrade head
+          nohup .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/backend.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/api/v1/health/ready && break; sleep 1; done
+      - name: Web (production-сборка)
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run build
+          nohup npm run start > /tmp/web.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3000/login > /dev/null && break; sleep 1; done
+      - name: Playwright
+        working-directory: web
+        run: npx playwright test
+      - name: Логи при падении
+        if: failure()
+        run: tail -n 100 /tmp/backend.log /tmp/web.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: web/test-results/
+          retention-days: 7
+
+  docker:
+    name: docker · сборка образов
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose build
+        run: docker compose -f infra/docker-compose.yml --profile full build

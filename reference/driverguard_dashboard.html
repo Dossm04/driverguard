@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1220">
+<title>DriverGuard — Панель координатора</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0B1220; --card:#121A2B; --card2:#1A2438; --line:#22304A;
+  --txt:#E8EEFC; --mut:#8EA0BF; --acc:#3B82F6;
+  --ok:#22C55E; --warn:#F59E0B; --danger:#EF4444; --off:#64748B;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--txt);font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px}
+.num{font-variant-numeric:tabular-nums}
+a{color:var(--acc)}
+
+/* ───── Каркас ───── */
+.app{display:flex;height:100vh;overflow:hidden}
+aside{width:236px;flex:none;background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:16px 12px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px;letter-spacing:.3px;padding:4px 8px 16px}
+.logo .sh{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#2563EB,#22C55E);display:grid;place-items:center;font-size:18px}
+nav{display:flex;flex-direction:column;gap:2px}
+nav button{all:unset;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;color:var(--mut);cursor:pointer;font-weight:600;font-size:14px}
+nav button:hover{background:var(--card2);color:var(--txt)}
+nav button.act{background:#1D2A44;color:var(--txt);box-shadow:inset 2px 0 0 var(--acc)}
+nav button .b{margin-left:auto;background:var(--danger);color:#fff;border-radius:99px;font-size:11px;padding:1px 7px;font-weight:700}
+.devwidget{margin-top:auto;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px}
+.devwidget .t{font-size:12px;color:var(--mut)}
+.devwidget .v{font-size:18px;font-weight:800;margin-top:2px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+header.top{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--card)}
+header.top h1{font-size:19px;margin:0;font-weight:700}
+.live{display:flex;align-items:center;gap:6px;color:var(--ok);font-size:12px;font-weight:700}
+.live .dot{background:var(--ok);animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.25}}
+.search{margin-left:auto;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--mut);min-width:200px;font-size:13px}
+.bell{position:relative;background:var(--card2);border:1px solid var(--line);border-radius:10px;width:38px;height:38px;display:grid;place-items:center;cursor:pointer;font-size:16px}
+.bell .b{position:absolute;top:-5px;right:-5px;background:var(--danger);border-radius:99px;font-size:10px;font-weight:800;padding:1px 5px}
+.admin{display:flex;align-items:center;gap:8px}
+.ava{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:13px;color:#06121f;flex:none}
+
+.content{flex:1;overflow-y:auto;padding:20px}
+.view{display:none}.view.act{display:block}
+h2.sec{font-size:15px;margin:18px 2px 10px;color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.6px}
+
+/* ───── Общие компоненты ───── */
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.grid{display:grid;gap:12px}
+.kpis{grid-template-columns:repeat(6,1fr)}
+.kpi .v{font-size:26px;font-weight:800}
+.kpi .l{font-size:12px;color:var(--mut);margin-top:3px}
+.kpi .d{font-size:12px;font-weight:700;margin-left:6px}
+.badge{display:inline-flex;align-items:center;gap:5px;border-radius:99px;padding:3px 10px;font-size:12px;font-weight:700}
+.b-ok{background:#12321f;color:var(--ok)} .b-warn{background:#3a2a10;color:var(--warn)}
+.b-danger{background:#3a1717;color:var(--danger)} .b-off{background:#232c3a;color:var(--off)}
+.b-new{background:#16263e;color:var(--acc)}
+.btn{border:1px solid var(--line);background:var(--card2);color:var(--txt);border-radius:10px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.dan{background:transparent;border-color:var(--danger);color:var(--danger)}
+.btn.ok{background:var(--ok);border-color:var(--ok);color:#04240f}
+.btn:disabled{opacity:.4;cursor:default}
+select,.chip{background:var(--card2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600}
+.chip{cursor:pointer}.chip.act{background:#1D2A44;border-color:var(--acc);color:var(--acc)}
+.score{font-weight:800}
+.s-ok{color:var(--ok)}.s-warn{color:var(--warn)}.s-danger{color:var(--danger)}
+.conf{width:70px;height:6px;background:var(--card2);border-radius:99px;overflow:hidden}
+.conf i{display:block;height:100%;background:var(--acc)}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+.tbl td{padding:10px;border-bottom:1px solid #1a2438;vertical-align:middle}
+.tbl tr:hover td{background:#141d31}
+.icoC{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:16px;flex:none}
+.i-danger{background:#3a1717}.i-warn{background:#3a2a10}.i-off{background:#232c3a}
+
+/* Обзор */
+.ovRow{grid-template-columns:2fr 1fr}
+.mini{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #1a2438}
+.mini:last-child{border-bottom:none}
+
+/* Карта */
+#mapWrap{position:relative;height:calc(100vh - 130px);border-radius:16px;overflow:hidden;border:1px solid var(--line)}
+#map{position:absolute;inset:0;background:#0e1626}
+.mapPanel{position:absolute;top:12px;right:12px;width:300px;max-height:calc(100% - 24px);overflow-y:auto;z-index:900;background:rgba(18,26,43,.92);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:14px;padding:10px}
+.vrow{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:10px;cursor:pointer}
+.vrow:hover{background:var(--card2)}
+.legend{position:absolute;left:12px;bottom:12px;z-index:900;background:rgba(18,26,43,.92);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12px;display:flex;gap:14px}
+.mk{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:16px;border:2.5px solid;background:#0b1220;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+.mk-ok{border-color:var(--ok)} .mk-warn{border-color:var(--warn)} .mk-off{border-color:var(--off);filter:grayscale(.6)}
+.mk-danger{border-color:var(--danger);animation:pulseM 1s infinite}
+@keyframes pulseM{0%{box-shadow:0 0 0 0 rgba(239,68,68,.6)}70%{box-shadow:0 0 0 14px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--card);color:var(--txt);border:1px solid var(--line)}
+.leaflet-popup-content{margin:12px 14px;font-family:inherit}
+
+/* Лидерборд */
+.podium{grid-template-columns:1fr 1fr 1fr}
+.pod{position:relative;text-align:center;padding-top:22px}
+.pod .medal{font-size:26px;position:absolute;top:10px;left:14px}
+.pod .ava{width:56px;height:56px;margin:0 auto 8px;font-size:20px}
+.pod .sc{font-size:34px;font-weight:800}
+.lbRow{grid-template-columns:2fr 1fr}
+.bar{height:8px;background:var(--card2);border-radius:99px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%}
+.note{font-size:12px;color:var(--mut);line-height:1.5;margin-top:10px}
+.streak{color:#fb923c;font-weight:800}
+
+/* Водители */
+.dGrid{grid-template-columns:repeat(3,1fr)}
+.dcard{cursor:pointer;transition:transform .1s}
+.dcard:hover{transform:translateY(-2px);border-color:var(--acc)}
+.ring{--p:80;--c:var(--ok);width:64px;height:64px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:17px;
+      background:conic-gradient(var(--c) calc(var(--p)*1%), var(--card2) 0)}
+.ring b{width:50px;height:50px;border-radius:50%;background:var(--card);display:grid;place-items:center}
+#profile{display:none}
+
+/* Чек-листы */
+.photos{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin:12px 0}
+.ph{position:relative;aspect-ratio:4/3;border-radius:10px;border:1px solid var(--line);display:grid;place-items:center;font-size:22px;background:linear-gradient(145deg,#18233a,#0e1626)}
+.ph span{position:absolute;bottom:4px;left:6px;font-size:10px;color:var(--mut)}
+.ph .ai{position:absolute;top:4px;right:4px;font-size:11px;border-radius:6px;padding:1px 5px;font-weight:800}
+.ai-ok{background:#12321f;color:var(--ok)}.ai-warn{background:#3a1717;color:var(--danger)}
+
+/* Модалка, тосты */
+#modalBg{display:none;position:fixed;inset:0;background:rgba(4,8,16,.7);z-index:1200;align-items:center;justify-content:center;padding:16px}
+#modalBg.open{display:flex}
+.modal{background:var(--card);border:1px solid var(--line);border-radius:16px;max-width:760px;width:100%;padding:18px;max-height:92vh;overflow-y:auto}
+.irframe{position:relative;aspect-ratio:4/3;border-radius:12px;overflow:hidden;background:
+  radial-gradient(ellipse at 50% 42%, #23413a 0%, #14231f 55%, #0a1411 100%);display:grid;place-items:center}
+.irframe::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.03) 0 1px,transparent 1px 3px)}
+.irframe .face{font-size:96px;filter:grayscale(1) brightness(1.6) contrast(.8)}
+.irframe .rec{position:absolute;top:10px;left:12px;color:#9ff0c9;font-family:monospace;font-size:12px}
+.irframe .rec i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--danger);margin-right:6px;animation:blink 1s infinite}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin:14px 0;font-size:13px}
+.mgrid .l{color:var(--mut)}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--card2);border:1px solid var(--acc);color:var(--txt);padding:12px 18px;border-radius:12px;font-weight:600;z-index:1500;display:none;max-width:90%}
+#notifDrop{display:none;position:absolute;right:0;top:46px;width:330px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px;z-index:1100;box-shadow:0 14px 40px rgba(0,0,0,.5)}
+
+@media (max-width:980px){
+  .app{flex-direction:column}
+  aside{width:100%;flex-direction:row;align-items:center;padding:8px;overflow-x:auto}
+  .logo{padding:0 8px}
+  nav{flex-direction:row}
+  .devwidget{display:none}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .ovRow,.lbRow,.podium,.dGrid{grid-template-columns:1fr}
+  .photos{grid-template-columns:repeat(4,1fr)}
+  .search{display:none}
+  #mapWrap{height:70vh}
+  .mapPanel{position:static;width:auto;max-height:none;margin-top:8px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="logo"><div class="sh">🛡</div>DriverGuard</div>
+    <nav id="nav">
+      <button data-v="overview" class="act">📊 Обзор</button>
+      <button data-v="map">🗺 Live-карта</button>
+      <button data-v="events">⚠️ События <span class="b" id="navNew"></span></button>
+      <button data-v="leaderboard">🏆 Лидерборд</button>
+      <button data-v="drivers">👤 Водители</button>
+      <button data-v="checklists">✅ Чек-листы</button>
+    </nav>
+    <div class="devwidget">
+      <div class="t">УСТРОЙСТВА ОНЛАЙН</div>
+      <div class="v"><span class="dot" style="background:var(--ok)"></span>5 / 6</div>
+      <div class="t" style="margin-top:4px">318 AST 01 — нет связи 3 ч</div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="top">
+      <h1 id="title">Обзор</h1>
+      <span class="live"><span class="dot"></span>LIVE</span>
+      <input class="search" placeholder="Поиск: водитель, номер машины…">
+      <div style="position:relative">
+        <div class="bell" id="bell">🔔<span class="b">3</span></div>
+        <div id="notifDrop"></div>
+      </div>
+      <div class="admin"><div class="ava" style="background:#7dd3fc">АК</div><div><b>Айгерим</b><div style="font-size:11px;color:var(--mut)">Координатор</div></div></div>
+    </header>
+
+    <div class="content">
+
+      <!-- ═══ ОБЗОР ═══ -->
+      <section class="view act" id="v-overview">
+        <div class="grid kpis" id="kpis"></div>
+        <div class="grid ovRow" style="margin-top:12px">
+          <div class="card"><h2 class="sec" style="margin-top:0">События по дням · 7 дней</h2><canvas id="chDays" height="120"></canvas></div>
+          <div class="card"><h2 class="sec" style="margin-top:0">По типам · 7 дней</h2><canvas id="chTypes" height="220"></canvas></div>
+        </div>
+        <div class="grid ovRow" style="margin-top:12px">
+          <div class="card"><h2 class="sec" style="margin-top:0">Последние критические</h2><div id="lastCrit"></div></div>
+          <div class="card"><h2 class="sec" style="margin-top:0">Водители в красной зоне</h2><div id="redZone"></div></div>
+        </div>
+      </section>
+
+      <!-- ═══ КАРТА ═══ -->
+      <section class="view" id="v-map">
+        <div id="mapWrap">
+          <div id="map"></div>
+          <div class="mapPanel" id="vehPanel"></div>
+          <div class="legend">
+            <span><span class="dot" style="background:var(--ok)"></span>Норма</span>
+            <span><span class="dot" style="background:var(--warn)"></span>Усталость</span>
+            <span><span class="dot" style="background:var(--danger)"></span>Критично</span>
+            <span><span class="dot" style="background:var(--off)"></span>Нет связи</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══ СОБЫТИЯ ═══ -->
+      <section class="view" id="v-events">
+        <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <select id="fType"><option value="all">Все типы</option></select>
+          <select id="fDriver"><option value="all">Все водители</option></select>
+          <span class="chip act" data-s="all">Все</span>
+          <span class="chip" data-s="new">Новые</span>
+          <span class="chip" data-s="confirmed">Подтверждённые</span>
+          <span class="chip" data-s="false">Ложные</span>
+          <button class="btn" id="csv" style="margin-left:auto">⤓ CSV</button>
+        </div>
+        <div class="card" style="margin-top:12px;padding:6px 10px;overflow-x:auto">
+          <table class="tbl" id="evTbl"><thead><tr>
+            <th>Событие</th><th>Водитель · машина</th><th>Время</th><th>Скорость</th><th>Conf.</th><th>Статус</th><th></th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </section>
+
+      <!-- ═══ ЛИДЕРБОРД ═══ -->
+      <section class="view" id="v-leaderboard">
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <span class="chip act" data-p="7">Неделя</span>
+          <span class="chip" data-p="30">Месяц</span>
+        </div>
+        <div class="grid podium" id="podium"></div>
+        <div class="grid lbRow" style="margin-top:12px">
+          <div class="card" style="padding:6px 10px;overflow-x:auto">
+            <table class="tbl" id="lbTbl"><thead><tr>
+              <th>#</th><th>Водитель</th><th>Депо</th><th>Score</th><th>Δ нед.</th><th>Серия</th><th>Км</th><th>Событий</th>
+            </tr></thead><tbody></tbody></table>
+            <div class="note">Формула: 100 − Σ(вес события × модификатор скорости), нормировано на пробег · только подтверждённые и неоспоренные события · бонус за серию до +10 · «ложное» возвращает баллы водителю.</div>
+          </div>
+          <div>
+            <div class="card"><h2 class="sec" style="margin-top:0">Командный зачёт депо</h2><div id="depots"></div></div>
+            <div class="card" style="margin-top:12px"><h2 class="sec" style="margin-top:0">Бейджи</h2>
+              <div class="mini">🔥 <b>Неделя без риска</b><span style="margin-left:auto;color:var(--mut)">7 дней серии</span></div>
+              <div class="mini">🛡 <b>Железная выдержка</b><span style="margin-left:auto;color:var(--mut)">30 дней серии</span></div>
+              <div class="mini">🌙 <b>Ночной страж</b><span style="margin-left:auto;color:var(--mut)">10 ночных рейсов без событий</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══ ВОДИТЕЛИ ═══ -->
+      <section class="view" id="v-drivers">
+        <div class="grid dGrid" id="dGrid"></div>
+        <div class="card" id="profile" style="margin-top:12px"></div>
+      </section>
+
+      <!-- ═══ ЧЕК-ЛИСТЫ ═══ -->
+      <section class="view" id="v-checklists"><div id="clList"></div></section>
+
+    </div>
+  </div>
+</div>
+
+<!-- Модалка события -->
+<div id="modalBg"><div class="modal" id="modal"></div></div>
+<div id="toast"></div>
+
+<script>
+/* ════════════════ ДЕМО-ДАННЫЕ (детерминированный сид) ════════════════ */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rnd=mulberry32(20260907);
+const NOW=Date.now(), DAY=86400000;
+
+const DRIVERS=[
+ {id:1,name:"Ерлан Абилов",   depot:"Астана",   color:"#60A5FA",risk:0.30,km30:11840,streak:14,phone:"+7 701 244 18 32"},
+ {id:2,name:"Данияр Сапаров", depot:"Астана",   color:"#A78BFA",risk:0.45,km30:12930,streak:9, phone:"+7 705 883 40 07"},
+ {id:3,name:"Азамат Кенжебеков",depot:"Караганда",color:"#34D399",risk:0.60,km30:10480,streak:5, phone:"+7 702 517 66 21"},
+ {id:4,name:"Марат Оспанов",  depot:"Астана",   color:"#F472B6",risk:0.95,km30:13210,streak:2, phone:"+7 707 129 55 84"},
+ {id:5,name:"Бауыржан Токтаров",depot:"Караганда",color:"#FBBF24",risk:1.30,km30:12040,streak:0, phone:"+7 701 936 72 13"},
+ {id:6,name:"Сергей Ким",     depot:"Караганда",color:"#94A3B8",risk:1.60,km30: 9860,streak:0, phone:"+7 777 402 91 58"},
+];
+const VEHICLES=[
+ {id:1,plate:"483 KHA 01",model:"КамАЗ-5490",  driverId:1},
+ {id:2,plate:"127 ABL 01",model:"MAN TGS 18.400",driverId:2},
+ {id:3,plate:"962 KOR 09",model:"Volvo FH 460", driverId:3},
+ {id:4,plate:"318 AST 01",model:"КамАЗ-54901",  driverId:4},
+ {id:5,plate:"554 KRG 09",model:"MAN TGX",      driverId:5},
+ {id:6,plate:"209 SAR 09",model:"Volvo FM",     driverId:6},
+];
+const ETYPES={
+ microsleep:{label:"Микросон",           icon:"😴",sev:"danger",w:15},
+ phone:     {label:"Телефон за рулём",   icon:"📱",sev:"danger",w:10},
+ seatbelt:  {label:"Ремень не пристёгнут",icon:"🔓",sev:"warn", w:6},
+ nod:       {label:"Клевок головой",     icon:"⤵️",sev:"warn", w:5},
+ smoking:   {label:"Курение",            icon:"🚬",sev:"warn", w:4},
+ fatigue:   {label:"Усталость (PERCLOS)",icon:"🥱",sev:"warn", w:2},
+ noface:    {label:"Саботаж камеры",     icon:"🚫",sev:"danger",w:20},
+};
+/* Трасса М-36 Астана → Караганда */
+const ROUTE=[[51.128,71.430],[51.02,71.62],[50.90,71.83],[50.76,72.06],[50.60,72.28],
+             [50.42,72.47],[50.23,72.66],[50.055,72.964],[49.93,73.03],[49.806,73.085]];
+function routePoint(t){const s=t*(ROUTE.length-1),i=Math.min(Math.floor(s),ROUTE.length-2),f=s-i;
+ return [ROUTE[i][0]+(ROUTE[i+1][0]-ROUTE[i][0])*f, ROUTE[i][1]+(ROUTE[i+1][1]-ROUTE[i][1])*f];}
+
+/* Генерация событий за 30 дней + «свежие» сюжетные */
+const EVENTS=[]; let eid=1;
+DRIVERS.forEach(d=>{
+  const n=Math.round(13*d.risk)+6;
+  for(let k=0;k<n;k++){
+    const daysAgo=0.3+rnd()*29;
+    const t=new Date(NOW-daysAgo*DAY);
+    const r=rnd();
+    let type=r<0.28?"fatigue":r<0.46?"phone":r<0.60?"smoking":r<0.72?"seatbelt":r<0.85?"nod":r<0.96?"microsleep":"noface";
+    if(type==="microsleep") t.setHours(1+Math.floor(rnd()*4),Math.floor(rnd()*60));
+    const [lat,lon]=routePoint(rnd());
+    EVENTS.push({id:eid++,driverId:d.id,vehicleId:d.id,type,ts:t.getTime(),
+      lat:+lat.toFixed(4),lon:+lon.toFixed(4),
+      speed:type==="seatbelt"?Math.round(rnd()*20):Math.round(30+rnd()*58),
+      conf:+(0.82+rnd()*0.15).toFixed(2),
+      status:daysAgo>2?(rnd()<0.12?"false":"confirmed"):"new"});
+  }
+});
+function hero(driverId,type,hoursAgo,speed,conf,t){const[la,lo]=routePoint(t);
+  EVENTS.push({id:eid++,driverId,vehicleId:driverId,type,ts:NOW-hoursAgo*3600000,
+    lat:+la.toFixed(4),lon:+lo.toFixed(4),speed,conf,status:"new"});}
+hero(5,"microsleep", (new Date().getHours()+24-2.57)%24, 84, 0.96, 0.70);
+hero(6,"phone", 3.2, 87, 0.93, 0.52);
+hero(6,"noface", 11.5, 62, 0.99, 0.48);
+hero(4,"fatigue", 1.1, 71, 0.88, 0.30);
+EVENTS.sort((a,b)=>b.ts-a.ts);
+
+/* Скоринг */
+function calcScore(id,from,to){
+  let pen=0,evs=0;
+  EVENTS.forEach(e=>{ if(e.driverId===id&&e.ts>=from&&e.ts<to&&e.status!=="false"){
+    let w=ETYPES[e.type].w;
+    if((e.type==="phone"||e.type==="microsleep")&&e.speed>60)w*=1.5;
+    if(e.type==="phone"&&e.speed<5)w*=0.3;
+    pen+=w;evs++;}});
+  const days=(to-from)/DAY;
+  const bonus=Math.min(DRIVERS.find(d=>d.id===id).streak,10);
+  return {score:Math.max(40,Math.min(100,Math.round(100-(pen*7/days)*0.8+bonus))),evs};
+}
+const wk=id=>calcScore(id,NOW-7*DAY,NOW);
+const scoreCls=s=>s>=85?"s-ok":s>=70?"s-warn":"s-danger";
+const scoreCol=s=>s>=85?"var(--ok)":s>=70?"var(--warn)":"var(--danger)";
+
+/* ════════════════ УТИЛИТЫ UI ════════════════ */
+const $=q=>document.querySelector(q);
+const fmt=ts=>{const d=new Date(ts),t=d.toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"});
+  const dd=Math.floor((NOW-ts)/DAY);
+  return (dd===0?"Сегодня":dd===1?"Вчера":d.toLocaleDateString("ru-RU",{day:"2-digit",month:"2-digit"}))+" "+t;};
+const drv=id=>DRIVERS.find(d=>d.id===id), veh=id=>VEHICLES.find(v=>v.id===id);
+const avatar=(d,sz=34)=>`<div class="ava" style="background:${d.color};width:${sz}px;height:${sz}px">${d.name.split(" ").map(w=>w[0]).join("")}</div>`;
+function toast(msg){const t=$("#toast");t.textContent=msg;t.style.display="block";
+  clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",2600);}
+Chart.defaults.color="#8EA0BF";Chart.defaults.borderColor="#22304A";Chart.defaults.font.family="Inter,system-ui";
+
+/* ════════════════ НАВИГАЦИЯ ════════════════ */
+const TITLES={overview:"Обзор",map:"Live-карта",events:"События",leaderboard:"Лидерборд",drivers:"Водители",checklists:"Чек-листы предрейсового осмотра"};
+document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#nav button").forEach(x=>x.classList.remove("act"));
+  document.querySelectorAll(".view").forEach(x=>x.classList.remove("act"));
+  b.classList.add("act");
+  const v=b.dataset.v; $("#v-"+v).classList.add("act"); $("#title").textContent=TITLES[v];
+  if(v==="map") initMap();
+});
+
+/* ════════════════ ОБЗОР ════════════════ */
+function renderKPIs(){
+  const today=new Date();today.setHours(0,0,0,0);
+  const evToday=EVENTS.filter(e=>e.ts>=+today&&e.status!=="false").length;
+  const crit24=EVENTS.filter(e=>e.ts>=NOW-DAY&&ETYPES[e.type].sev==="danger"&&e.status!=="false").length;
+  const avg=Math.round(DRIVERS.reduce((s,d)=>s+wk(d.id).score,0)/DRIVERS.length);
+  const kmW=Math.round(DRIVERS.reduce((s,d)=>s+d.km30,0)*7/30);
+  $("#kpis").innerHTML=[
+    ["5 / 6","Машин на линии",""],
+    [evToday,"Событий сегодня",`<span class="d s-warn">▲</span>`],
+    [crit24,"Критических · 24 ч",`<span class="d s-danger">${crit24?"⚠":""}</span>`],
+    [`<span class="${scoreCls(avg)}">${avg}</span>`,"Средний Score парка",""],
+    [kmW.toLocaleString("ru-RU"),"Км за неделю",""],
+    ["98.2%","Аптайм устройств",""]
+  ].map(([v,l,d])=>`<div class="card kpi"><div class="v num">${v}${d}</div><div class="l">${l}</div></div>`).join("");
+  const nnew=EVENTS.filter(e=>e.status==="new").length;
+  $("#navNew").textContent=nnew;$("#navNew").style.display=nnew?"":"none";
+}
+function renderOverviewLists(){
+  $("#lastCrit").innerHTML=EVENTS.filter(e=>ETYPES[e.type].sev==="danger"&&e.status!=="false").slice(0,4).map(e=>`
+    <div class="mini"><div class="icoC i-danger">${ETYPES[e.type].icon}</div>
+      <div><b>${ETYPES[e.type].label}</b><div style="font-size:12px;color:var(--mut)">${drv(e.driverId).name} · ${veh(e.vehicleId).plate}</div></div>
+      <span style="margin-left:auto;color:var(--mut);font-size:12px" class="num">${fmt(e.ts)}</span>
+      <button class="btn" onclick="openEvent(${e.id})">Открыть</button></div>`).join("");
+  $("#redZone").innerHTML=DRIVERS.map(d=>({d,s:wk(d.id).score})).filter(x=>x.s<70).map(x=>`
+    <div class="mini">${avatar(x.d)}<b>${x.d.name}</b>
+      <span class="score s-danger num" style="margin-left:auto;font-size:17px">${x.s}</span>
+      <button class="btn" onclick="toast('Микрообучение «Управление усталостью» назначено: ${x.d.name}')">Назначить обучение</button></div>`).join("")
+    ||`<div class="note">Никого — отличная неделя ✓</div>`;
+}
+let chDays,chTypes;
+function renderCharts(){
+  const labels=[],crit=[],warn=[];
+  for(let i=6;i>=0;i--){
+    const d0=new Date(NOW-i*DAY);d0.setHours(0,0,0,0);const d1=+d0+DAY;
+    labels.push(d0.toLocaleDateString("ru-RU",{day:"2-digit",month:"2-digit"}));
+    crit.push(EVENTS.filter(e=>e.ts>=+d0&&e.ts<d1&&ETYPES[e.type].sev==="danger"&&e.status!=="false").length);
+    warn.push(EVENTS.filter(e=>e.ts>=+d0&&e.ts<d1&&ETYPES[e.type].sev==="warn"&&e.status!=="false").length);
+  }
+  chDays&&chDays.destroy();
+  chDays=new Chart($("#chDays"),{type:"bar",data:{labels,datasets:[
+    {label:"Критические",data:crit,backgroundColor:"#EF4444",borderRadius:5},
+    {label:"Предупреждения",data:warn,backgroundColor:"#F59E0B88",borderRadius:5}]},
+    options:{responsive:true,scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,ticks:{precision:0}}},
+      plugins:{legend:{labels:{boxWidth:10}}}}});
+  const cnt={};Object.keys(ETYPES).forEach(k=>cnt[k]=0);
+  EVENTS.filter(e=>e.ts>=NOW-7*DAY&&e.status!=="false").forEach(e=>cnt[e.type]++);
+  chTypes&&chTypes.destroy();
+  chTypes=new Chart($("#chTypes"),{type:"doughnut",data:{
+    labels:Object.keys(ETYPES).map(k=>ETYPES[k].label),
+    datasets:[{data:Object.values(cnt),borderWidth:0,
+      backgroundColor:["#EF4444","#F97316","#F59E0B","#EAB308","#84CC16","#38BDF8","#8B5CF6"]}]},
+    options:{cutout:"62%",plugins:{legend:{position:"right",labels:{boxWidth:9,font:{size:11}}}}}});
+}
+
+/* ════════════════ КАРТА ════════════════ */
+const VPOS=[
+ {vId:1,t:0.16,status:"ok",   speed:76,moving:true},
+ {vId:2,t:0.34,status:"ok",   speed:81,moving:true},
+ {vId:3,t:0.88,status:"ok",   speed:64,moving:true},
+ {vId:4,t:0.30,status:"off",  speed:0, moving:false,note:"Нет связи 3 ч"},
+ {vId:5,t:0.70,status:"danger",speed:84,moving:true,note:"Микросон · сегодня 02:34"},
+ {vId:6,t:0.52,status:"warn", speed:69,moving:true,note:"PERCLOS 24% · рекомендован перерыв"},
+];
+let map,markers={},mapInit=false;
+function initMap(){
+  if(mapInit){map.invalidateSize();return}
+  mapInit=true;
+  map=L.map("map",{zoomControl:true,attributionControl:true}).setView([50.45,72.3],7);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    {attribution:'© OpenStreetMap contributors © CARTO',maxZoom:18}).addTo(map);
+  L.polyline(ROUTE,{color:"#3B82F6",opacity:.35,weight:5}).addTo(map);
+  VPOS.forEach(p=>{
+    const v=veh(p.vId),d=drv(v.driverId),[la,lo]=routePoint(p.t),s=wk(d.id).score;
+    const m=L.marker([la,lo],{icon:L.divIcon({className:"",iconSize:[34,34],iconAnchor:[17,17],
+      html:`<div class="mk mk-${p.status}">🚚</div>`})}).addTo(map);
+    m.bindPopup(`<b style="font-size:15px">${v.plate}</b> · ${v.model}<br>
+      <div style="margin:6px 0">${d.name} · <b class="${scoreCls(s)}">Score ${s}</b></div>
+      Скорость: <b class="num">${p.speed} км/ч</b><br>
+      ${p.note?`<div style="color:${p.status==="danger"?"var(--danger)":"var(--warn)"};margin-top:4px">⚠ ${p.note}</div>`:""}
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button class="btn pri" onclick="toast('Звоним: ${d.name} ${d.phone}')">📞 Позвонить</button>
+        <button class="btn" onclick="openDriver(${d.id})">Профиль</button></div>`);
+    markers[p.vId]=m;
+  });
+  renderVehPanel();
+  setInterval(()=>{ /* «живое» движение */
+    VPOS.forEach(p=>{if(!p.moving)return;p.t+=0.0011;if(p.t>0.98)p.t=0.02;
+      markers[p.vId].setLatLng(routePoint(p.t));});
+  },1500);
+}
+function renderVehPanel(){
+  $("#vehPanel").innerHTML=`<h2 class="sec" style="margin:4px 6px 8px">Машины · ${VPOS.length}</h2>`+
+   VPOS.map(p=>{const v=veh(p.vId),d=drv(v.driverId),s=wk(d.id).score;
+    return `<div class="vrow" onclick="flyTo(${p.vId})">
+      <span class="dot" style="background:var(--${p.status==="ok"?"ok":p.status==="warn"?"warn":p.status==="danger"?"danger":"off"})"></span>
+      <div><b>${v.plate}</b><div style="font-size:12px;color:var(--mut)">${d.name}</div></div>
+      <div style="margin-left:auto;text-align:right"><b class="num">${p.speed} км/ч</b>
+      <div class="score ${scoreCls(s)}" style="font-size:12px">${s}</div></div></div>`;}).join("");
+}
+window.flyTo=vId=>{const p=VPOS.find(x=>x.vId===vId);map.flyTo(routePoint(p.t),10);markers[vId].openPopup();};
+
+/* ════════════════ СОБЫТИЯ ════════════════ */
+const F={type:"all",driver:"all",status:"all"};
+Object.keys(ETYPES).forEach(k=>$("#fType").insertAdjacentHTML("beforeend",`<option value="${k}">${ETYPES[k].icon} ${ETYPES[k].label}</option>`));
+DRIVERS.forEach(d=>$("#fDriver").insertAdjacentHTML("beforeend",`<option value="${d.id}">${d.name}</option>`));
+$("#fType").onchange=e=>{F.type=e.target.value;renderEvents()};
+$("#fDriver").onchange=e=>{F.driver=e.target.value;renderEvents()};
+document.querySelectorAll("#v-events .chip").forEach(c=>c.onclick=()=>{
+  document.querySelectorAll("#v-events .chip").forEach(x=>x.classList.remove("act"));
+  c.classList.add("act");F.status=c.dataset.s;renderEvents();});
+const stBadge=s=>s==="new"?`<span class="badge b-new">Новое</span>`:s==="confirmed"?`<span class="badge b-ok">Подтверждено</span>`:`<span class="badge b-off">Ложное</span>`;
+function filtered(){return EVENTS.filter(e=>
+  (F.type==="all"||e.type===F.type)&&(F.driver==="all"||e.driverId==+F.driver)&&(F.status==="all"||e.status===F.status));}
+function renderEvents(){
+  $("#evTbl tbody").innerHTML=filtered().slice(0,120).map(e=>{const T=ETYPES[e.type];
+   return `<tr>
+    <td><div style="display:flex;align-items:center;gap:10px">
+      <div class="icoC i-${T.sev==="danger"?"danger":"warn"}">${T.icon}</div><b>${T.label}</b></div></td>
+    <td>${drv(e.driverId).name}<div style="font-size:12px;color:var(--mut)">${veh(e.vehicleId).plate}</div></td>
+    <td class="num">${fmt(e.ts)}</td>
+    <td class="num">${e.speed} км/ч</td>
+    <td><div class="conf" title="${e.conf}"><i style="width:${e.conf*100}%"></i></div></td>
+    <td>${stBadge(e.status)}</td>
+    <td style="white-space:nowrap">
+      ${e.status==="new"?`<button class="btn ok" onclick="setEvStatus(${e.id},'confirmed')">✓</button>
+      <button class="btn dan" onclick="setEvStatus(${e.id},'false')">✗</button>`:""}
+      <button class="btn" onclick="openEvent(${e.id})">▶ Клип</button></td></tr>`;}).join("")
+  ||`<tr><td colspan="7" class="note" style="text-align:center;padding:26px">Событий нет — отличная смена ✓</td></tr>`;
+}
+window.setEvStatus=(id,st)=>{
+  EVENTS.find(e=>e.id===id).status=st;
+  toast(st==="confirmed"?"Событие подтверждено — учтено в скоринге водителя"
+       :"Помечено как ложное — баллы возвращены, кадр добавлен в датасет дообучения модели");
+  renderEvents();renderKPIs();renderLeaderboard();renderOverviewLists();closeModal();
+};
+$("#csv").onclick=()=>{
+  const rows=[["id","type","driver","vehicle","datetime","speed_kmh","confidence","lat","lon","status"]]
+    .concat(filtered().map(e=>[e.id,e.type,drv(e.driverId).name,veh(e.vehicleId).plate,
+      new Date(e.ts).toISOString(),e.speed,e.conf,e.lat,e.lon,e.status]));
+  const blob=new Blob(["\ufeff"+rows.map(r=>r.join(";")).join("\n")],{type:"text/csv"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="driverguard_events.csv";a.click();
+};
+
+/* Модалка события */
+window.openEvent=id=>{
+  const e=EVENTS.find(x=>x.id===id),T=ETYPES[e.type],d=drv(e.driverId),v=veh(e.vehicleId);
+  const tc=new Date(e.ts).toLocaleTimeString("ru-RU");
+  $("#modal").innerHTML=`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <div class="icoC i-${T.sev==="danger"?"danger":"warn"}">${T.icon}</div>
+      <h3 style="margin:0">${T.label}</h3>${stBadge(e.status)}
+      <button class="btn" style="margin-left:auto" onclick="closeModal()">✕</button></div>
+    <div class="irframe"><span class="face">👤</span>
+      <span class="rec"><i></i>ИК · ${tc} · 640×480 · REC</span></div>
+    <div class="mgrid num">
+      <span class="l">Водитель</span><span><b>${d.name}</b> · ${d.phone}</span>
+      <span class="l">Машина</span><span>${v.plate} · ${v.model}</span>
+      <span class="l">Время</span><span>${fmt(e.ts)}</span>
+      <span class="l">Скорость</span><span>${e.speed} км/ч</span>
+      <span class="l">Координаты</span><span><a target="_blank" href="https://www.openstreetmap.org/?mlat=${e.lat}&mlon=${e.lon}#map=12/${e.lat}/${e.lon}">${e.lat}, ${e.lon}</a></span>
+      <span class="l">Confidence</span><span>${(e.conf*100).toFixed(0)}%</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${e.status==="new"?`<button class="btn ok" onclick="setEvStatus(${e.id},'confirmed')">✓ Подтвердить</button>
+      <button class="btn dan" onclick="setEvStatus(${e.id},'false')">✗ Ложное срабатывание</button>`:""}
+      <button class="btn pri" onclick="toast('Звоним: ${d.name} ${d.phone}')">📞 Позвонить водителю</button></div>
+    <div class="note">«Ложное срабатывание» возвращает баллы водителю, а кадр автоматически уходит в датасет дообучения — так модель становится точнее с каждой неделей.</div>`;
+  $("#modalBg").classList.add("open");
+};
+window.closeModal=()=>$("#modalBg").classList.remove("open");
+$("#modalBg").onclick=e=>{if(e.target.id==="modalBg")closeModal()};
+
+/* ════════════════ ЛИДЕРБОРД ════════════════ */
+let PERIOD=7;
+document.querySelectorAll("#v-leaderboard .chip").forEach(c=>c.onclick=()=>{
+  document.querySelectorAll("#v-leaderboard .chip").forEach(x=>x.classList.remove("act"));
+  c.classList.add("act");PERIOD=+c.dataset.p;renderLeaderboard();});
+function renderLeaderboard(){
+  const rows=DRIVERS.map(d=>{
+    const cur=calcScore(d.id,NOW-PERIOD*DAY,NOW);
+    const prev=calcScore(d.id,NOW-14*DAY,NOW-7*DAY);
+    return {d,score:cur.score,evs:cur.evs,delta:wk(d.id).score-prev.score,
+            km:Math.round(d.km30*PERIOD/30)};
+  }).sort((a,b)=>b.score-a.score);
+  const medals=["🥇","🥈","🥉"];
+  $("#podium").innerHTML=rows.slice(0,3).map((r,i)=>`
+    <div class="card pod"><span class="medal">${medals[i]}</span>
+      ${avatar(r.d,56)}<b style="font-size:15px">${r.d.name}</b>
+      <div style="font-size:12px;color:var(--mut)">${r.d.depot}</div>
+      <div class="sc num ${scoreCls(r.score)}">${r.score}</div>
+      <div class="streak">🔥 ${r.d.streak} дн. без событий</div></div>`).join("");
+  $("#lbTbl tbody").innerHTML=rows.map((r,i)=>`<tr onclick="openDriver(${r.d.id})" style="cursor:pointer">
+    <td class="num"><b>${i+1}</b></td>
+    <td><div style="display:flex;align-items:center;gap:10px">${avatar(r.d)}<b>${r.d.name}</b></div></td>
+    <td style="color:var(--mut)">${r.d.depot}</td>
+    <td><span class="score ${scoreCls(r.score)} num" style="font-size:17px">${r.score}</span></td>
+    <td class="num" style="color:${r.delta>=0?"var(--ok)":"var(--danger)"}">${r.delta>=0?"▲":"▼"} ${Math.abs(r.delta)}</td>
+    <td class="streak num">${r.d.streak?`🔥 ${r.d.streak}`:"—"}</td>
+    <td class="num">${r.km.toLocaleString("ru-RU")}</td>
+    <td class="num">${r.evs}</td></tr>`).join("");
+  const dep={};
+  rows.forEach(r=>{(dep[r.d.depot]=dep[r.d.depot]||[]).push(r.score)});
+  $("#depots").innerHTML=Object.entries(dep).map(([name,arr])=>{
+    const avg=Math.round(arr.reduce((a,b)=>a+b,0)/arr.length);
+    return `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between">
+      <b>Депо ${name}</b><b class="num ${scoreCls(avg)}">${avg}</b></div>
+      <div class="bar"><i style="width:${avg}%;background:${scoreCol(avg)}"></i></div></div>`;}).join("");
+}
+
+/* ════════════════ ВОДИТЕЛИ ════════════════ */
+function renderDrivers(){
+  $("#dGrid").innerHTML=DRIVERS.map(d=>{const s=wk(d.id);
+    return `<div class="card dcard" onclick="openDriver(${d.id})">
+      <div style="display:flex;gap:14px;align-items:center">
+        <div class="ring num" style="--p:${s.score};--c:${scoreCol(s.score)}"><b>${s.score}</b></div>
+        <div><b style="font-size:15px">${d.name}</b>
+          <div style="font-size:12px;color:var(--mut)">${d.depot} · ${veh(d.id).plate}</div>
+          <div style="font-size:12px;margin-top:4px">${d.streak?`<span class="streak">🔥 ${d.streak} дн.</span>`:`<span style="color:var(--mut)">серия прервана</span>`}
+          · <span class="num">${s.evs} соб./нед.</span></div></div></div></div>`;}).join("");
+}
+let chScore,chBrk;
+window.openDriver=id=>{
+  document.querySelectorAll("#nav button").forEach(x=>x.classList.toggle("act",x.dataset.v==="drivers"));
+  document.querySelectorAll(".view").forEach(x=>x.classList.remove("act"));
+  $("#v-drivers").classList.add("act");$("#title").textContent=TITLES.drivers;
+  const d=drv(id),s=wk(id);
+  $("#profile").style.display="block";
+  $("#profile").innerHTML=`
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      ${avatar(d,56)}<div><b style="font-size:18px">${d.name}</b>
+        <div style="color:var(--mut);font-size:13px">${d.depot} · ${veh(id).model} ${veh(id).plate} · ${d.phone}</div></div>
+      <div class="ring num" style="--p:${s.score};--c:${scoreCol(s.score)};margin-left:auto"><b>${s.score}</b></div>
+      <button class="btn pri" onclick="toast('Звоним: ${d.phone}')">📞 Позвонить</button>
+      <button class="btn" onclick="toast('Микрообучение назначено водителю ${d.name}')">Назначить обучение</button></div>
+    <div class="grid" style="grid-template-columns:2fr 1fr;margin-top:16px">
+      <div class="card" style="background:var(--card2)"><h2 class="sec" style="margin-top:0">Score · 8 недель</h2><canvas id="chScore" height="110"></canvas></div>
+      <div class="card" style="background:var(--card2)"><h2 class="sec" style="margin-top:0">События · 30 дней</h2><canvas id="chBrk" height="180"></canvas></div>
+    </div>
+    <h2 class="sec">Последние события</h2>
+    <div>${EVENTS.filter(e=>e.driverId===id).slice(0,5).map(e=>`
+      <div class="mini"><div class="icoC i-${ETYPES[e.type].sev==="danger"?"danger":"warn"}">${ETYPES[e.type].icon}</div>
+        <b>${ETYPES[e.type].label}</b><span style="color:var(--mut)" class="num">${e.speed} км/ч</span>
+        <span style="margin-left:auto;color:var(--mut);font-size:12px" class="num">${fmt(e.ts)}</span>
+        <button class="btn" onclick="openEvent(${e.id})">▶</button></div>`).join("")}</div>`;
+  const labels=[],data=[];
+  for(let w=7;w>=0;w--){labels.push(w===0?"эта":`-${w} нед`);
+    data.push(calcScore(id,NOW-(w+1)*7*DAY,NOW-w*7*DAY).score);}
+  chScore&&chScore.destroy();
+  chScore=new Chart($("#chScore"),{type:"line",data:{labels,datasets:[{data,label:"Score",
+    borderColor:"#3B82F6",backgroundColor:"#3B82F633",fill:true,tension:.35,pointRadius:3}]},
+    options:{scales:{y:{min:40,max:100}},plugins:{legend:{display:false}}}});
+  const cnt={};Object.keys(ETYPES).forEach(k=>cnt[k]=0);
+  EVENTS.filter(e=>e.driverId===id&&e.status!=="false").forEach(e=>cnt[e.type]++);
+  chBrk&&chBrk.destroy();
+  chBrk=new Chart($("#chBrk"),{type:"doughnut",data:{labels:Object.keys(ETYPES).map(k=>ETYPES[k].label),
+    datasets:[{data:Object.values(cnt),borderWidth:0,
+      backgroundColor:["#EF4444","#F97316","#F59E0B","#EAB308","#84CC16","#38BDF8","#8B5CF6"]}]},
+    options:{cutout:"62%",plugins:{legend:{position:"bottom",labels:{boxWidth:9,font:{size:10}}}}}});
+  $("#profile").scrollIntoView({behavior:"smooth"});
+};
+
+/* ════════════════ ЧЕК-ЛИСТЫ ════════════════ */
+const PH=[["🔦","Перёд + фары"],["🔴","Зад + габариты"],["◀️","Левый борт"],["▶️","Правый борт"],["🛞","Шины"],["🪟","Лобовое"],["🛢","Под двигателем"]];
+const CHECKS=[
+ {id:1,driverId:1,ts:NOW-2.1*3600000,verdict:"допущен",items:[
+   ["Фары и габариты","включены, исправны",.95,1],["Шины","норма, видимых повреждений нет",.93,1],
+   ["Лобовое стекло","чистое, без трещин",.97,1],["Зеркала","на месте",.96,1],
+   ["Утечки","не обнаружены",.91,1],["Кузов","без новых повреждений",.9,1]]},
+ {id:2,driverId:4,ts:NOW-3.4*3600000,verdict:"внимание",bad:5,items:[
+   ["Фары и габариты","включены, исправны",.94,1],["Шины","норма",.92,1],
+   ["Лобовое стекло","обнаружена трещина 12 см в зоне пассажира",.89,0],
+   ["Зеркала","на месте",.95,1],["Утечки","не обнаружены",.9,1],["Кузов","царапина на правом борту (была ранее)",.84,1]]},
+ {id:3,driverId:5,ts:NOW-13*3600000,verdict:"не_допущен",bad:0,items:[
+   ["Фары и габариты","левая фара НЕ горит",.91,0],["Шины","норма",.9,1],
+   ["Лобовое стекло","чистое",.96,1],["Зеркала","на месте",.95,1],
+   ["Утечки","не обнаружены",.88,1],["Кузов","без повреждений",.9,1]]},
+ {id:4,driverId:2,ts:NOW-2.6*3600000,verdict:"допущен",items:[
+   ["Фары и габариты","включены",.96,1],["Шины","норма",.94,1],["Лобовое стекло","чистое",.97,1],
+   ["Зеркала","на месте",.96,1],["Утечки","не обнаружены",.92,1],["Кузов","без новых повреждений",.91,1]]},
+];
+function renderChecklists(){
+  const VB={"допущен":["b-ok","✓ ДОПУЩЕН"],"внимание":["b-warn","⚠ ТРЕБУЕТ ВНИМАНИЯ"],"не_допущен":["b-danger","✕ НЕ ДОПУЩЕН"]};
+  $("#clList").innerHTML=CHECKS.map(c=>{const d=drv(c.driverId),[cls,txt]=VB[c.verdict];
+    return `<div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        ${avatar(d)}<div><b>${d.name}</b><div style="font-size:12px;color:var(--mut)">${veh(c.driverId).plate} · ${veh(c.driverId).model}</div></div>
+        <span class="num" style="color:var(--mut)">${fmt(c.ts)}</span>
+        <span class="badge ${cls}" style="margin-left:auto;font-size:13px">${txt}</span></div>
+      <div class="photos">${PH.map((p,i)=>{
+        const bad=(c.bad!==undefined&&i===c.bad);
+        return `<div class="ph">${p[0]}<span>${p[1]}</span><span class="ai ${bad?"ai-warn":"ai-ok"}">${bad?"⚠ ИИ":"✓ ИИ"}</span></div>`;}).join("")}</div>
+      <table class="tbl"><thead><tr><th>Пункт</th><th>Вердикт ИИ</th><th>Conf.</th></tr></thead><tbody>
+        ${c.items.map(([n,v,cf,ok])=>`<tr><td><b>${n}</b></td>
+          <td style="color:${ok?"var(--txt)":"var(--danger)"}">${v}</td>
+          <td><div class="conf"><i style="width:${cf*100}%"></i></div></td></tr>`).join("")}</tbody></table>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        ${c.verdict==="допущен"?`<button class="btn ok" onclick="toast('Выезд согласован: ${veh(c.driverId).plate}')">Согласовать выезд</button>`
+        :`<button class="btn pri" onclick="toast('Заявка на устранение создана: ${veh(c.driverId).plate}')">Отправить на устранение</button>
+          <button class="btn" onclick="toast('Выезд согласован с отметкой координатора')">Согласовать с отметкой</button>`}
+      </div></div>`;}).join("");
+}
+
+/* ════════════════ УВЕДОМЛЕНИЯ ════════════════ */
+$("#bell").onclick=()=>{
+  const dr=$("#notifDrop");
+  if(dr.style.display==="block"){dr.style.display="none";return}
+  dr.innerHTML=`<h2 class="sec" style="margin:4px 6px 8px">Критические</h2>`+
+    EVENTS.filter(e=>ETYPES[e.type].sev==="danger"&&e.status==="new").slice(0,3).map(e=>`
+    <div class="mini" style="cursor:pointer" onclick="openEvent(${e.id});document.getElementById('notifDrop').style.display='none'">
+      <div class="icoC i-danger">${ETYPES[e.type].icon}</div>
+      <div><b>${ETYPES[e.type].label}</b><div style="font-size:12px;color:var(--mut)">${drv(e.driverId).name} · ${fmt(e.ts)}</div></div></div>`).join("");
+  dr.style.display="block";
+};
+
+/* ════════════════ СТАРТ ════════════════ */
+renderKPIs();renderCharts();renderOverviewLists();
+renderEvents();renderLeaderboard();renderDrivers();renderChecklists();
+</script>
+</body>
+</html>
