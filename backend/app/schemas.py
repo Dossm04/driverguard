@@ -313,9 +313,10 @@ class ClipUploadOut(BaseModel):
     expires_in: int
 
 
-# Телефон и курение — по жестам руки (MediaPipe Hand Landmarker в браузере); ремень телефон не ловит
+# Ремень принимается только с явно указанным источником object_model.
 CameraEventType = Literal[
-    "microsleep", "fatigue", "head_nod", "distraction", "camera_sabotage", "phone", "smoking"
+    "microsleep", "fatigue", "head_nod", "distraction", "camera_sabotage", "phone", "smoking",
+    "seatbelt",
 ]
 
 
@@ -332,7 +333,18 @@ class CameraEventIn(BaseModel):
     gps_valid: bool = False
     speed_kmh: float | None = Field(default=None, ge=0, le=300)
     value: float | None = None
-    note: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=512)
+    detector: Literal["face_rules", "hand_gesture", "object_model"] | None = None
+    model_run_id: str | None = Field(default=None, min_length=1, max_length=120)
+    model_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_detector(self):
+        if self.type == "seatbelt" and self.detector != "object_model":
+            raise ValueError("Ремень требует отдельной модели предметов")
+        if self.detector == "object_model" and not (self.model_run_id and self.model_sha256):
+            raise ValueError("Укажите версию и контрольную сумму модели предметов")
+        return self
 
 
 class CameraHeartbeatIn(BaseModel):

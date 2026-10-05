@@ -186,3 +186,7 @@ make test
 `make infra-up`, `make seed`, `make backend-dev`, `make web-dev`, `make test`, `make web-e2e`,
 `make backup` / `make backup-restore DIR=…` (копии БД и фото), `make load-test N=40 ADMINS=5`
 (нагрузка стенда), `make tunnel`, `make mentors N=…`, `make ai-setup KEY=…`.
+
+Офлайн-камера телефона, сохранение событий и порядок проверки описаны в
+[инструкции по офлайн-режиму](docs/offline-camera.md). Перед отключением сети нажмите
+«Подготовить офлайн» на странице камеры и дождитесь подтверждения.

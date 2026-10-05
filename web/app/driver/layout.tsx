@@ -10,17 +10,21 @@ import { DriverTabs } from "@/components/driver/shell";
 import { ToastProvider, useToast } from "@/components/ui/toast";
 import { getToken } from "@/lib/api";
 import { flushPendingChecklists } from "@/lib/offline-queue";
+import { flushCameraEvents } from "@/lib/camera-queue";
 
 function OfflineQueueFlusher() {
   const toast = useToast();
   useEffect(() => {
-    const flush = () =>
+    const flush = () => {
+      void flushCameraEvents().catch(() => undefined);
       flushPendingChecklists().then((results) => {
         for (const r of results) toast(r);
       });
+    };
     flush();
     window.addEventListener("online", flush);
-    return () => window.removeEventListener("online", flush);
+    const timer = setInterval(flush, 15_000);
+    return () => { clearInterval(timer); window.removeEventListener("online", flush); };
   }, [toast]);
   return null;
 }

@@ -125,17 +125,21 @@ let refreshInFlight: Promise<RefreshResult> | null = null;
 export function refreshTokensDetailed(): Promise<RefreshResult> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async (): Promise<RefreshResult> => {
-    const refresh = read(refreshKey());
-    if (!refresh) return "invalid";
+    const key = refreshKey();
+    const refresh = read(key);
     try {
+      if (!refresh) return "invalid";
       const resp = await fetch(`${API_URL}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: refresh }),
+        signal: AbortSignal.timeout(15_000),
       });
+      if (refreshKey() !== key || read(key) !== refresh) return "transient";
       if (resp.status === 401 || resp.status === 403) return "invalid";
       if (!resp.ok) return "transient";
       const data = await resp.json();
+      if (refreshKey() !== key || read(key) !== refresh) return "transient";
       setTokens(data.access_token, data.refresh_token ?? undefined);
       return "ok";
     } catch {
@@ -154,7 +158,13 @@ export async function refreshTokens(): Promise<boolean> {
   return (await refreshTokensDetailed()) === "ok";
 }
 
-export async function api<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
+export async function api<T>(path: string, init?: RequestInit, retried = false, expectedUserId?: number): Promise<T> {
+  const assertOwner = () => {
+    if (expectedUserId !== undefined && (currentUser()?.id !== expectedUserId || currentUser()?.role !== "driver")) {
+      throw new ApiError(409, "Учётная запись изменилась. События сохранены для прежнего водителя.");
+    }
+  };
+  assertOwner();
   // new Headers(...) корректно принимает все формы HeadersInit (объект/Headers/массив)
   const headers = new Headers(init?.headers);
   // multipart (чек-лист с фото): boundary выставляет браузер, Content-Type руками не ставим
@@ -167,8 +177,10 @@ export async function api<T>(path: string, init?: RequestInit, retried = false):
   const resp = await fetch(`${API_URL}${path}`, { ...init, headers });
 
   if (resp.status === 401) {
+    assertOwner();
     const outcome = retried ? "invalid" : await refreshTokensDetailed();
-    if (outcome === "ok") return api<T>(path, init, true);
+    assertOwner();
+    if (outcome === "ok") return api<T>(path, init, true, expectedUserId);
     // Временный сбой обновления (туннель/сеть/429) — не разлогиниваем посреди показа,
     // запрос просто не удался; на экран входа — только если refresh-токен отвергнут
     if (outcome === "invalid") toLogin();

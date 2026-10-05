@@ -11,7 +11,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cameraAvailable } from "@/components/driver/camera-capture";
 import { BigButton, Card } from "@/components/driver/shell";
 import { StatusPill, type PillTone } from "@/components/ui/status-pill";
-import { ApiError, api } from "@/lib/api";
+import { api, saveBlob } from "@/lib/api";
+import { CAMERA_QUEUE_CHANGED, cameraOwner, flushCameraEvents, listCameraEvents, saveCameraEvents, type CameraEventBody } from "@/lib/camera-queue";
+import { OfflineCamera } from "./offline-camera";
 import { NO_GESTURE, gesturesFromHands, type HandGesture } from "@/lib/dms/gestures";
 import { RuleEngine, type Detection } from "@/lib/dms/rules";
 import { signalsFromResult, type Point3 } from "@/lib/dms/signals";
@@ -42,8 +44,11 @@ const HAND_EVERY_N_FRAMES = 3;
 async function pickModelUrl(local: string, remote: string, forced?: string): Promise<string> {
   if (forced) return forced;
   try {
-    const head = await fetch(local, { method: "HEAD", signal: AbortSignal.timeout(4000) });
-    if (head.ok && Number(head.headers.get("content-length") ?? 0) > 100_000) return local;
+    // GET can be served by the offline cache; a HEAD probe cannot.
+    const head = await fetch(local, { signal: AbortSignal.timeout(4000) });
+    const available = head.ok && Number(head.headers.get("content-length") ?? 0) > 100_000;
+    void head.body?.cancel();
+    if (available) return local;
   } catch {
     /* локальной копии нет — берём с Google Storage */
   }
@@ -74,20 +79,6 @@ interface LogItem {
   at: number;
   sent: boolean;
 }
-
-type CameraEventBody = {
-  uuid: string;
-  type: Detection["type"];
-  severity: Detection["severity"];
-  confidence: number;
-  ts: string;
-  lat: number | null;
-  lon: number | null;
-  gps_valid: boolean;
-  speed_kmh: number | null;
-  value: number | null;
-  note: string;
-};
 
 // Минимальные типы MediaPipe: сам пакет грузим динамически, чтобы не тянуть его в общий бандл
 interface Landmarker {
@@ -185,7 +176,8 @@ export function DmsCamera({ vehiclePlate }: { vehiclePlate: string | null }) {
   const lastFrameRef = useRef(0);
   const fpsRef = useRef<{ t: number; n: number; last: number }>({ t: 0, n: 0, last: 0 });
   const audioRef = useRef<AudioContext | null>(null);
-  const pendingRef = useRef<CameraEventBody[]>([]);
+  const pendingRef = useRef<{ owner: string; body: CameraEventBody }[]>([]);
+  const ownerRef = useRef<string | null>(null);
   const inFlightRef = useRef(false);
   const coordsRef = useRef<Coords | null>(null);
   const speedSourceRef = useRef<SpeedSource>("gps");
@@ -208,6 +200,9 @@ export function DmsCamera({ vehiclePlate }: { vehiclePlate: string | null }) {
   const [sent, setSent] = useState(0);
   const [heartbeatOk, setHeartbeatOk] = useState<boolean | null>(null);
   const [supported, setSupported] = useState(true);
+  const [queued, setQueued] = useState(0);
+  const [rejected, setRejected] = useState(0);
+  const [storageError, setStorageError] = useState("");
 
   useEffect(() => setSupported(cameraAvailable()), []);
   useEffect(() => {
@@ -222,33 +217,57 @@ export function DmsCamera({ vehiclePlate }: { vehiclePlate: string | null }) {
     return coordsRef.current?.speedKmh ?? null;
   }, []);
 
-  /** Отправка накопленных событий (не чаще раза в 2 с; при ошибке сети — остаются в очереди).
-     Одновременно в полёте только один батч; отправленные убираем по uuid (за время запроса
-     очередь могла пополниться); ошибки данных (4xx кроме 401/429) не держат очередь вечно. */
+  // First commit to IndexedDB, then send. A write failure remains visible and is
+  // retried from RAM while this tab stays open; it is never described as saved.
   const flush = useCallback(async () => {
-    if (inFlightRef.current || !pendingRef.current.length) return;
-    const batch = pendingRef.current.slice(0, 20);
-    const ids = new Set(batch.map((b) => b.uuid));
+    if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
-      const res = await api<{ accepted: number; duplicates: number }>("/drivers/me/camera-events", {
-        method: "POST",
-        body: JSON.stringify(batch),
-      });
-      pendingRef.current = pendingRef.current.filter((b) => !ids.has(b.uuid));
-      setLog((items) => items.map((i) => (ids.has(i.id) ? { ...i, sent: true } : i)));
-      setSent((n) => n + res.accepted);
-    } catch (e) {
-      const status = e instanceof ApiError ? e.status : 0;
-      if (status >= 400 && status < 500 && status !== 401 && status !== 429) {
-        // сервер отверг данные (например, учётка без машины) — батч не повторяем
-        pendingRef.current = pendingRef.current.filter((b) => !ids.has(b.uuid));
+      const batch = [...pendingRef.current];
+      for (const owner of new Set(batch.map((row) => row.owner))) {
+        const rows = batch.filter((row) => row.owner === owner);
+        await saveCameraEvents(owner, rows.map((row) => row.body));
+        const ids = new Set(rows.map((row) => row.body.uuid));
+        pendingRef.current = pendingRef.current.filter((row) => !ids.has(row.body.uuid));
       }
-      /* сеть/5xx/401/429 — повторим на следующем тике */
+      setStorageError("");
+      await flushCameraEvents();
+    } catch {
+      setStorageError("Не удалось сохранить события на телефон. Не закрывайте вкладку; освободите память устройства и повторите.");
     } finally {
       inFlightRef.current = false;
     }
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const update = (event?: Event) => {
+      const detail = (event as CustomEvent<{ owner: string; synced: string[] }> | undefined)?.detail;
+      if (detail && detail.owner !== cameraOwner()) return;
+      if (detail?.synced.length) {
+        const ids = new Set(detail.synced);
+        setLog((items) => items.map((item) => ids.has(item.id) ? { ...item, sent: true } : item));
+        setSent((n) => n + ids.size);
+      }
+      void listCameraEvents().then((rows) => {
+        if (!alive) return;
+        setQueued(rows.filter((row) => !row.rejected).length);
+        setRejected(rows.filter((row) => row.rejected).length);
+        setLog((items) => {
+          const known = new Set(items.map((item) => item.id));
+          return [...rows.filter((row) => !known.has(row.body.uuid)).map((row) => ({
+            id: row.body.uuid, type: row.body.type, severity: row.body.severity, note: row.body.note,
+            at: Date.parse(row.body.ts), sent: false,
+          })), ...items].sort((a, b) => b.at - a.at).slice(0, MAX_LOG);
+        });
+      }).catch(() => { if (alive) setStorageError("Хранилище телефона недоступно. События не будут сохранены после закрытия вкладки."); });
+    };
+    update();
+    window.addEventListener(CAMERA_QUEUE_CHANGED, update);
+    window.addEventListener("online", flush);
+    const timer = setInterval(() => void flush(), FLUSH_MS);
+    return () => { alive = false; clearInterval(timer); window.removeEventListener(CAMERA_QUEUE_CHANGED, update); window.removeEventListener("online", flush); };
+  }, [flush]);
 
   const stop = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -289,9 +308,16 @@ export function DmsCamera({ vehiclePlate }: { vehiclePlate: string | null }) {
         gps_valid: Boolean(c?.valid),
         speed_kmh: speed,
         value: d.value,
-        note: `${d.note}${["phone", "smoking", "seatbelt"].includes(d.type) ? (objectRef.current ? ` · модель ${objectRef.current.manifest.run_id}` : " · предположение по жесту, предмет не подтверждён") : ""}${speedSourceRef.current === "sim" ? " · скорость имитируется" : ""}`,
+        note: `${d.note}${["phone", "smoking", "seatbelt"].includes(d.type) ? (objectRef.current ? ` · модель ${objectRef.current.manifest.run_id}` : " · предположение по жесту, предмет не подтверждён") : ""}${speedSourceRef.current === "sim" ? " · скорость имитируется" : ""}`.slice(0, 512),
+        detector: ["phone", "smoking", "seatbelt"].includes(d.type) ? (objectRef.current ? "object_model" : "hand_gesture") : "face_rules",
+        ...(["phone", "smoking", "seatbelt"].includes(d.type) && objectRef.current ? {
+          model_run_id: objectRef.current.manifest.run_id,
+          model_sha256: objectRef.current.manifest.sha256,
+        } : {}),
       }));
-      pendingRef.current.push(...bodies);
+      const owner = ownerRef.current;
+      if (!owner) return;
+      pendingRef.current.push(...bodies.map((body) => ({ owner, body })));
       setLog((items) =>
         [
           ...bodies.map<LogItem>((b) => ({
@@ -436,6 +462,8 @@ export function DmsCamera({ vehiclePlate }: { vehiclePlate: string | null }) {
       /* без звука тоже работает */
     }
     try {
+      ownerRef.current = cameraOwner();
+      if (!ownerRef.current) throw new Error("Войдите в учётную запись водителя перед запуском камеры.");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "user" }, width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
@@ -576,10 +604,8 @@ export function DmsCamera({ vehiclePlate }: { vehiclePlate: string | null }) {
     };
     void beat();
     const hb = setInterval(beat, HEARTBEAT_MS);
-    const fl = setInterval(flush, FLUSH_MS);
     return () => {
       clearInterval(hb);
-      clearInterval(fl);
     };
   }, [stage, currentSpeed, flush]);
 
@@ -735,11 +761,19 @@ export function DmsCamera({ vehiclePlate }: { vehiclePlate: string | null }) {
         </button>
       </Card>
 
+      <OfflineCamera />
+
       <Card>
         <div className="mb-2 flex items-center justify-between">
           <b>{t("События с камеры")}</b>
           <span className="num text-xs text-mut">{t("отправлено")}{" "}{sent}</span>
         </div>
+        <p className="mb-2 text-xs text-mut" data-testid="camera-queue-count">Сохранено на телефоне, ожидает отправки: {queued}</p>
+        {storageError && <p role="alert" className="mb-2 text-xs text-danger">{storageError}</p>}
+        {rejected > 0 && <p role="alert" className="mb-2 text-xs text-warn">Сервер отклонил {rejected} событий. Они сохранены для проверки.</p>}
+        {(queued > 0 || rejected > 0) && <button type="button" className="mb-2 text-xs text-accent underline" onClick={() => {
+          void listCameraEvents().then((rows) => saveBlob(new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" }), "driverguard-events.json"));
+        }}>Скачать сохранённые события</button>}
         {log.length === 0 ? (
           <p className="text-sm text-mut">
             {t("Пока пусто. Закройте глаза на 2 секунды — придёт «Засыпание за рулём»; зевните трижды — «Усталость»; опустите голову — «Клевок»; отвернитесь при имитации скорости — «Отвлечение».")}

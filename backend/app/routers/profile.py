@@ -155,7 +155,12 @@ def my_camera_events(
                 "gps_valid": bool(has_gps and item.gps_valid),
                 "speed_kmh": item.speed_kmh,
                 "value": item.value,
-                "context": {"source": "pwa_camera", "note": item.note},
+                "context": {
+                    "source": "pwa_camera", "note": item.note,
+                    "detector": item.detector,
+                    "model_run_id": item.model_run_id,
+                    "model_sha256": item.model_sha256,
+                },
                 "status": "new",
                 "is_demo": False,
                 "created_at": now,

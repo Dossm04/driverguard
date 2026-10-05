@@ -65,7 +65,7 @@ def test_camera_events_reject_unknown_type_and_staff(client, seeded, headers):
         client.post(
             "/api/v1/drivers/me/camera-events",
             json=[_event(type="seatbelt")],
-            headers=h,  # ремень — только с устройства
+            headers=h,  # ремень без явного источника модели не принимается
         ).status_code
         == 422
     )
@@ -108,4 +108,26 @@ def test_camera_events_accept_phone_and_smoking_from_hand_gestures(client, seede
     assert r.status_code == 200, r.text
     assert r.json()["accepted"] == 2
     r = client.post("/api/v1/drivers/me/camera-events", json=[_event(type="seatbelt")], headers=h)
-    assert r.status_code == 422  # ремень телефон не определяет — только устройство
+    assert r.status_code == 422  # жесты руки не определяют ремень
+
+
+def test_camera_object_model_seatbelt_keeps_provenance(client, seeded, headers):
+    h = _driver_headers(client)
+    event = _event(
+        type="seatbelt", severity="warning", detector="object_model",
+        model_run_id="test-candidate", model_sha256="a" * 64,
+        note="Проверка модели предметов; " + "расширенное пояснение " * 7,
+    )
+    result = client.post("/api/v1/drivers/me/camera-events", json=[event], headers=h)
+    assert result.status_code == 200, result.text
+    assert result.json()["accepted"] == 1
+    items = client.get(
+        "/api/v1/events?type=seatbelt&page_size=100", headers=headers
+    ).json()["items"]
+    stored = next(item for item in items if item["uuid"] == event["uuid"])
+    assert stored["context"]["detector"] == "object_model"
+    assert stored["context"]["model_run_id"] == "test-candidate"
+    assert stored["context"]["model_sha256"] == "a" * 64
+    del event["model_sha256"]
+    response = client.post("/api/v1/drivers/me/camera-events", json=[event], headers=h)
+    assert response.status_code == 422

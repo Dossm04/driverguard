@@ -17,6 +17,13 @@ const nextConfig = {
   outputFileTracingRoot: process.cwd(),
   poweredByHeader: false,
   reactStrictMode: true,
+  async rewrites() {
+    const backend = process.env.INTERNAL_API_ORIGIN || "http://127.0.0.1:8000";
+    return [
+      { source: "/api/:path*", destination: `${backend}/api/:path*` },
+      { source: "/ws/:path*", destination: `${backend}/ws/:path*` },
+    ];
+  },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

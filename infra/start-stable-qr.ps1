@@ -77,8 +77,8 @@ if (-not $settings['NGROK_AUTHTOKEN']) {
 }
 
 $desired = @{
-    NEXT_PUBLIC_API_URL=($public + '/api/v1')
-    NEXT_PUBLIC_WS_URL=('wss://' + $domain + '/ws/live')
+    NEXT_PUBLIC_API_URL='/api/v1'
+    NEXT_PUBLIC_WS_URL='/ws/live'
     CORS_ORIGINS=('http://localhost:3000,http://127.0.0.1:3000,' + $public)
     NEXT_PUBLIC_MP_WASM_URL='/mediapipe/wasm'
 }

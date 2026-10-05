@@ -15,13 +15,13 @@ export default function DriverOfflinePage() {
         </div>
         <h1 className="mt-5 text-2xl font-extrabold">{t("Нет сети")}</h1>
         <p className="mt-2 text-mut">
-          {t("Приложение открылось из кэша. Как только связь появится, всё обновится само — заполненный чек-лист отправится автоматически.")}
+          Камера доступна без сети после подготовки на этом телефоне. Сохранённые события и чек-листы отправятся после восстановления связи и входа в ту же учётную запись.
         </p>
         <a
-          href="/driver"
+          href="/driver/camera"
           className="mt-6 inline-flex min-h-14 items-center rounded-card bg-accent px-6 font-extrabold text-onaccent"
         >
-          {t("Попробовать снова")}
+          Открыть камеру
         </a>
       </div>
     </div>
