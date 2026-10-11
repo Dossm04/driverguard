@@ -27,13 +27,16 @@ def _client(public: bool = False) -> Minio:
     # region задан явно: иначе minio-py делает GetBucketLocation на endpoint, а публичный
     # адрес (localhost:9000 / туннель) из контейнера backend недоступен → 503 при каждой
     # presigned-ссылке («Хранилище фото временно недоступно»)
-    return Minio(
+    client = Minio(
         parsed.netloc or endpoint,
         access_key=s.minio_root_user,
         secret_key=s.minio_root_password,
         secure=parsed.scheme == "https",
         region=s.minio_region,
     )
+    if s.minio_virtual_host_style:
+        client.enable_virtual_style_endpoint()
+    return client
 
 
 def ping() -> None:
@@ -51,6 +54,8 @@ def ping() -> None:
             timeout=urllib3.Timeout(connect=2, read=2), retries=urllib3.Retry(total=0)
         ),
     )
+    if s.minio_virtual_host_style:
+        client.enable_virtual_style_endpoint()
     if not client.bucket_exists(s.minio_bucket_photos):
         raise RuntimeError(f"бакет {s.minio_bucket_photos} не создан (minio-init)")
 

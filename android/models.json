@@ -1,0 +1,37 @@
+{
+  "status": "research_candidates_not_field_validated",
+  "models": [
+    {
+      "file": "face_landmarker.task",
+      "source": "https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker",
+      "url": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+      "bytes": 3758596,
+      "purpose": "Face landmarks and eye-blink coefficients; not a medical fatigue diagnosis"
+    },
+    {
+      "file": "seatbelt_classifier.onnx",
+      "source": "https://huggingface.co/RISEF/yolov11s-seatbelt",
+      "url": "https://huggingface.co/RISEF/yolov11s-seatbelt/resolve/0187cdb3cd65b14ce450ba3777e59b951dc1620f/weights/best.onnx",
+      "sha256": "bb945fdd1750dc4fdd98b4683a605ac6a1c9c7f4417324faf76b0c1b4f319df2",
+      "bytes": 21844306,
+      "license": "AGPL-3.0 as declared by author and embedded metadata",
+      "classes": ["no_seatbelt", "seat_belt"],
+      "input": [1, 3, 224, 224],
+      "preprocess": "RGB /255, stretch resize 224x224 per author's ONNX example; frame must contain one driver and torso",
+      "limitations": "Small, imbalanced windshield-view training set. Not validated for in-cabin infrared, passengers or partial torso. No automatic violation events."
+    },
+    {
+      "file": "smoking_yolov8.onnx",
+      "source": "https://huggingface.co/MeetCool/yolov8n-smoking-detection",
+      "url": "https://huggingface.co/MeetCool/yolov8n-smoking-detection/resolve/7d510c6aaa3fbc3048368565d4236993c077dc0a/models/fine_tune_YOLOv8n.onnx",
+      "sha256": "afcf1e6d1293427b9221b60c9505e76072f9a295120d0a78c71e35f9c444ff8e",
+      "bytes": 12252672,
+      "license": "AGPL-3.0 declared in ONNX metadata; no separate model card license provided",
+      "classes": ["cigarette", "person", "smoke"],
+      "input": [1, 3, 640, 640],
+      "preprocess": "RGB /255, centered 640 letterbox with 114 padding, YOLOv8 output [1,7,8400]",
+      "limitations": "Unknown held-out performance; not validated in cabin/IR. Cigarette presence alone does not prove smoking. No automatic violation events."
+    }
+  ]
+}

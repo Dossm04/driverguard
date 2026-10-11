@@ -1,0 +1,37 @@
+name: Deployment safeguards
+
+on:
+  push:
+    paths:
+      - "infra/railway/**"
+      - "infra/tests/test_railway_deployment.py"
+      - "backend/app/config.py"
+      - "backend/app/storage.py"
+      - "backend/app/models.py"
+      - ".github/workflows/deployment-checks.yml"
+  pull_request:
+    paths:
+      - "infra/railway/**"
+      - "infra/tests/test_railway_deployment.py"
+      - "backend/app/config.py"
+      - "backend/app/storage.py"
+      - "backend/app/models.py"
+      - ".github/workflows/deployment-checks.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deployment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - run: python -m pip install -e './backend[dev]'
+      - run: python -m pytest infra/tests/test_railway_deployment.py -q
+      - run: python -m ruff check --isolated --select E,F,W,I --line-length 100 infra/railway infra/tests/test_railway_deployment.py

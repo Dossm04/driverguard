@@ -15,7 +15,8 @@ def test_ai_status_mock_explains(client, admin_headers, monkeypatch):
 def test_ai_test_mock_and_error(client, admin_headers, viewer_headers, monkeypatch):
     monkeypatch.setattr(ai_checklist, "resolve_provider", lambda: "mock")
     r = client.post("/api/v1/checklists/ai-test", headers=admin_headers)
-    assert r.status_code == 200 and r.json()["ok"] and r.json()["demo"] is True
+    assert r.status_code == 200 and r.json()["ok"] is False
+    assert "ручная проверка" in r.json()["error"]
 
     def boom(_photos):
         raise AiError("HTTP 401: неверный ключ")

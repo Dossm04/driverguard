@@ -185,15 +185,18 @@ def test_catalog_endpoint(client, admin_headers):
     assert lamp["ai_key"] == "фары" and lamp["base"] and lamp["section_title"] == "Свет и электрика"
 
 
-def test_create_list_detail_mock(client, base_fleet, admin_headers, fake_storage):
+def test_create_list_detail_without_ai_requires_manual_review(
+    client, base_fleet, admin_headers, fake_storage
+):
     resp = _post(client, admin_headers)
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["verdict"] == "допущен" and body["status"] == "pending"
-    assert body["ai_meta"]["provider"] == "mock"
+    assert body["verdict"] == "требует_внимания" and body["status"] == "pending"
+    assert body["ai_meta"]["provider"] == "unavailable"
+    assert "ручная проверка" in body["ai_meta"]["error"]
     assert [p["slot"] for p in body["photos"]] == [s for s, _ in PHOTO_SLOTS]
     assert all(
-        p["url"].startswith("http://minio.test/checklists/1/") and p["ai"] == "ok"
+        p["url"].startswith("http://minio.test/checklists/1/") and p["ai"] == "not_visible"
         for p in body["photos"]
     )
     assert len(fake_storage) == 7
@@ -228,14 +231,26 @@ def test_create_validation(client, base_fleet, admin_headers):
     assert _post(client, admin_headers, driver_id=99).status_code == 404
 
 
-def test_questionnaire_overrides_ai_and_flags_discrepancy(client, base_fleet, admin_headers):
+def test_questionnaire_overrides_ai_and_flags_discrepancy(
+    client, base_fleet, admin_headers, monkeypatch
+):
+    # This test needs a real model response to compare with the driver's answer.
+    # An unavailable model cannot contradict the driver's observation.
+    monkeypatch.setattr(
+        ai_checklist, "verify_photos", lambda photos: (mock_verdict(), {"provider": "test"})
+    )
     body = _post(client, admin_headers, answers=_answers(Г3="нет")).json()
     assert body["verdict"] == "не_допущен"
     assert [i["id"] for i in body["answer_issues"]] == ["Г3"]
     assert any(d.startswith("Г3:") for d in body["discrepancies"])
 
 
-def test_review_rules_and_audit(client, db, base_fleet, admin_headers):
+def test_review_rules_and_audit(client, db, base_fleet, admin_headers, monkeypatch):
+    # Exercise the positive model-verdict review path explicitly. An unconfigured
+    # provider intentionally requires manual review and cannot yield "допущен".
+    monkeypatch.setattr(
+        ai_checklist, "verify_photos", lambda photos: (mock_verdict(), {"provider": "test"})
+    )
     ok_id = _post(client, admin_headers).json()["id"]
     bad_id = _post(client, admin_headers, answers=_answers(Г3="нет")).json()["id"]
 

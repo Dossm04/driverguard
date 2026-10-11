@@ -1,0 +1,11 @@
+{
+  "dockerfilePath": "infra/railway/web.Dockerfile",
+  "rootDirectory": "/",
+  "healthcheckPath": "/login",
+  "healthcheckTimeout": 180,
+  "restartPolicyType": "ON_FAILURE",
+  "restartPolicyMaxRetries": 5,
+  "numReplicas": 1,
+  "sleepApplication": false,
+  "watchPatterns": ["web/**", "infra/railway/**"]
+}

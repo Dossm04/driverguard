@@ -163,6 +163,8 @@ class Checklist(Base):
     __tablename__ = "checklists"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Mobile outbox retries the same UUID after a lost HTTP response.
+    client_uuid: Mapped[str | None] = mapped_column(String(36))
     trip_id: Mapped[int | None] = mapped_column(ForeignKey("trips.id"))
     driver_id: Mapped[int] = mapped_column(ForeignKey("drivers.id"))
     vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"))
@@ -176,6 +178,10 @@ class Checklist(Base):
     status: Mapped[str] = mapped_column(String(30), default="pending")
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("uq_checklists_driver_client_uuid", "driver_id", "client_uuid", unique=True),
+    )
 
 
 class Setting(Base):

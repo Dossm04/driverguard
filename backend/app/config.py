@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # Регион для подписи presigned-ссылок (MinIO по умолчанию us-east-1): задан явно, чтобы
     # клиент не ходил за ним по сети на публичный адрес, недоступный из контейнера
     minio_region: str = "us-east-1"
+    # Railway and some hosted S3 providers require bucket.endpoint URLs.
+    # Local MinIO/SeaweedFS keeps path-style URLs unless explicitly enabled.
+    minio_virtual_host_style: bool = False
     minio_bucket_clips: str = "clips"
     minio_bucket_photos: str = "photos"
 
@@ -42,7 +45,7 @@ class Settings(BaseSettings):
 
     # ИИ-проверка чек-листов (BE-10). ai_provider: auto | openai_compat | gemini | mock;
     # auto — openai_compat при ключе (alem.ai, данные в Казахстане), иначе gemini при
-    # ключе, иначе mock-вердикт для демо.
+    # ключе; без ключей или при mock — недоступность ИИ и ручная проверка, не допуск.
     ai_provider: str = "auto"
     # OpenAI-совместимый API (alem.ai: https://llm.alem.ai/v1, ключ выдаётся на модель)
     openai_compat_base_url: str = ""

@@ -6,6 +6,7 @@ POST: 7 фото (multipart) → приватный бакет MinIO → ИИ-в
 """
 
 import functools
+import hashlib
 import io
 import json
 import logging
@@ -16,6 +17,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import ai_checklist, storage
@@ -342,6 +344,11 @@ def checklist_template(db: Session = Depends(get_db)):
     )
 
 
+@router.get("/mobile-capabilities", dependencies=[Depends(get_current_user)])
+def mobile_capabilities():
+    return {"idempotent_uploads": True, "client_uuid_version": 1}
+
+
 @router.post("", response_model=ChecklistOut, status_code=201)
 def create_checklist(
     front_lights: UploadFile | None = File(None, description="Перёд + фары"),
@@ -358,6 +365,7 @@ def create_checklist(
     answers: str = Form("{}", description='JSON анкеты: {"Б2": "да", "Г3": "нет", "А5": "184320"}'),
     driver_id: int | None = Form(None, description="Только для сотрудников; водитель — свой"),
     trip_id: int | None = Form(None),
+    client_uuid: str | None = Form(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -375,6 +383,30 @@ def create_checklist(
     else:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Недостаточно прав")
     vehicle = driver.vehicle
+    if client_uuid is not None:
+        try:
+            client_uuid = str(uuid.UUID(client_uuid))
+        except (ValueError, AttributeError) as exc:
+            raise HTTPException(422, "client_uuid: нужен UUID осмотра") from exc
+        # The deployed database is PostgreSQL. Serialize only retries for this
+        # driver + UUID, before writing objects or invoking the photo provider.
+        lock_key = int.from_bytes(
+            hashlib.sha256(f"{driver.id}:{client_uuid}".encode()).digest()[:8], "big", signed=True
+        )
+        db.execute(select(func.pg_advisory_xact_lock(lock_key)))
+        existing = db.scalar(
+            select(Checklist).where(
+                Checklist.driver_id == driver.id, Checklist.client_uuid == client_uuid
+            )
+        )
+        if existing is not None:
+            return checklist_out(
+                existing,
+                driver,
+                db.get(Vehicle, existing.vehicle_id),
+                db.get(User, existing.approved_by) if existing.approved_by else None,
+                _items_index(db),
+            )
     if vehicle is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "За водителем не закреплена машина")
 
@@ -470,6 +502,7 @@ def create_checklist(
     q_verdict, _ = questionnaire_verdict(answers_dict, items_by_id)
 
     checklist = Checklist(
+        client_uuid=client_uuid,
         trip_id=trip_id,
         driver_id=driver.id,
         vehicle_id=vehicle.id,
@@ -481,7 +514,29 @@ def create_checklist(
         created_at=now,
     )
     db.add(checklist)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # Concurrent retries can race the first lookup. The database decides which wins.
+        existing = (
+            db.scalar(
+                select(Checklist).where(
+                    Checklist.driver_id == driver.id, Checklist.client_uuid == client_uuid
+                )
+            )
+            if client_uuid
+            else None
+        )
+        if existing is None:
+            raise
+        return checklist_out(
+            existing,
+            driver,
+            db.get(Vehicle, existing.vehicle_id),
+            db.get(User, existing.approved_by) if existing.approved_by else None,
+            _items_index(db),
+        )
     db.refresh(checklist)
     return checklist_out(checklist, driver, vehicle, None, items_by_id)
 

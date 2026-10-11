@@ -1,0 +1,44 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'kz.driverguard.offline'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'kz.driverguard.offline'
+        minSdk 26
+        targetSdk 35
+        versionCode 5
+        versionName '0.5.0-driver-workspace'
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    androidResources { noCompress += ['task', 'onnx'] }
+    buildTypes { release { minifyEnabled false } }
+    splits {
+        abi { enable true; reset(); include 'arm64-v8a', 'x86_64'; universalApk false }
+    }
+    testOptions { unitTests.returnDefaultValues = true }
+}
+dependencies {
+    implementation 'androidx.activity:activity:1.9.3'
+    implementation 'androidx.camera:camera-camera2:1.4.2'
+    implementation 'androidx.camera:camera-lifecycle:1.4.2'
+    implementation 'androidx.camera:camera-view:1.4.2'
+    implementation 'androidx.camera:camera-video:1.4.2'
+    implementation 'androidx.media3:media3-exoplayer:1.6.1'
+    implementation 'androidx.media3:media3-exoplayer-rtsp:1.6.1'
+    implementation 'com.google.mediapipe:tasks-vision:0.10.32'
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.23.2'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
+tasks.register('verifyOfflineAssets') {
+    doLast {
+        def manifest = new groovy.json.JsonSlurper().parse(rootProject.file('models.json'))
+        manifest.models.each { model ->
+            def path = file("src/main/assets/${model.file}")
+            if (!path.exists()) throw new GradleException("Missing ${model.file}; run python fetch_models.py")
+            def digest = java.security.MessageDigest.getInstance('SHA-256').digest(path.bytes).encodeHex().toString()
+            if (digest != model.sha256) throw new GradleException("Model checksum mismatch: ${model.file}")
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn 'verifyOfflineAssets' }

@@ -2,7 +2,7 @@
 
 Провайдеры: openai_compat (любой OpenAI-совместимый /chat/completions, у нас —
 alem.ai с Qwen 3.8 / Gemma 4, данные в Казахстане), gemini (REST generateContent
-со строгой responseSchema) и mock (без ключа — демо-режим).
+со строгой responseSchema). Без настроенного провайдера фото проверяет человек.
 Вердикт считается детерминированно на сервере из статусов пунктов;
 вердикт самой модели хранится только для сверки.
 """
@@ -127,7 +127,10 @@ def unavailable_verdict() -> AiVerdict:
 
 
 def mock_verdict() -> AiVerdict:
-    """Демо-вердикт без ключа (BE-10): всё исправно."""
+    """Синтетический образец для тестов правил; не результат проверки фотографий.
+
+    Рабочий путь verify_photos никогда не использует этот образец.
+    """
 
     def ok(conf: float, text: str) -> ItemCheck:
         return ItemCheck(статус="ok", confidence=conf, комментарий=text)
@@ -389,12 +392,10 @@ def verify_photos(photos: list[PhotoIn]) -> tuple[AiVerdict, dict]:
     started = time.monotonic()
     s = get_settings()
     if provider == "mock":
-        return normalize(mock_verdict()), {
-            "provider": "mock",
-            "model": None,
-            "latency_ms": 0,
-            "attempts": 1,
-        }
+        # No image has been examined. Let the submission endpoint persist the
+        # photos with unavailable_verdict() for coordinator review; an admin's
+        # AI connection test must also report unavailable, never a fake success.
+        raise AiError("ИИ-проверка фото не настроена — требуется ручная проверка координатором")
 
     if provider == "gemini":
         parts = _build_parts(photos)
