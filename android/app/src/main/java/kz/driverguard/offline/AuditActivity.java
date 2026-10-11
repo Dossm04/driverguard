@@ -265,15 +265,23 @@ public final class AuditActivity extends ComponentActivity {
         else launchPhoto();
     }
     private void launchPhoto() {
+        String startedPath = null;
         try {
             File folder = new File(getFilesDir(), "audit_photos");
             if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Нет места для фотографии");
             if (folder.getUsableSpace() < 128L * 1024 * 1024) throw new IOException("Освободите место на телефоне: для фото нужно 128 МБ");
             File file = new File(folder, UUID.randomUUID() + ".jpg");
             capturePath = file.getAbsolutePath(); captureDraft = draft.id(); captureOwner = draft.owner();
-            getSharedPreferences("audit_capture", MODE_PRIVATE).edit().putString("slot",captureSlot).putString("path",capturePath).putString("draft",captureDraft).putString("owner",captureOwner).commit();
+            startedPath = capturePath;
+            store.rememberCapture(captureSlot,capturePath,captureDraft,captureOwner);
             takePhoto.launch(FileProvider.getUriForFile(this, getPackageName() + ".files", file));
-        } catch (Exception error) { toast("Не удалось открыть камеру: " + error.getMessage()); }
+        } catch (Exception error) {
+            if (startedPath != null) {
+                String failedPath = startedPath; store.clearCapture(failedPath);
+                network.execute(() -> store.cleanupUnreferencedPhoto(getFilesDir(),failedPath));
+            }
+            toast("Не удалось открыть камеру: " + error.getMessage());
+        }
     }
     private void restoreCapture() {
         var preferences = getSharedPreferences("audit_capture", MODE_PRIVATE);
@@ -282,9 +290,15 @@ public final class AuditActivity extends ComponentActivity {
     }
     private void captured(boolean success) {
         restoreCapture();
-        if (!success || capturePath == null || captureSlot == null || captureDraft == null || captureOwner == null) return;
+        if (!success || capturePath == null || captureSlot == null || captureDraft == null || captureOwner == null) {
+            String cancelledPath = capturePath; store.clearCapture(cancelledPath);
+            network.execute(() -> {
+                store.cleanupUnreferencedPhoto(getFilesDir(),cancelledPath);
+                if (cancelledPath != null) store.cleanupUnreferencedPhoto(getFilesDir(),cancelledPath + ".tmp");
+            });
+            return;
+        }
         String slot = captureSlot, path = capturePath, id = captureDraft, owner = captureOwner;
-        getSharedPreferences("audit_capture", MODE_PRIVATE).edit().clear().commit();
         network.execute(() -> {
             try {
                 File photo = new File(path);
@@ -294,9 +308,14 @@ public final class AuditActivity extends ComponentActivity {
                 if (target == null || !target.state().equals("draft")) throw new IOException("Осмотр уже отправлен");
                 JSONObject photos = new JSONObject(target.photos().toString()); String previous = photos.optString(slot, ""); photos.put(slot, path);
                 target = AuditStore.changed(target, target.answers(), photos); store.save(target);
-                if (!previous.isBlank()) { File old = new File(previous); if (old.getCanonicalFile().getParentFile().equals(photo.getCanonicalFile().getParentFile())) old.delete(); }
+                if (!previous.isBlank()) store.cleanupUnreferencedPhoto(getFilesDir(),previous);
                 runOnUiThread(() -> { if (isDestroyed()) return; if (draft != null && draft.id().equals(id)) draft = store.get(id, owner); step = 1; message = "Фото сохранено. Можно продолжать без интернета."; render(); });
             } catch (Exception error) { runOnUiThread(() -> toast("Фото не сохранено: " + error.getMessage())); }
+            finally {
+                store.clearCapture(path);
+                store.cleanupUnreferencedPhoto(getFilesDir(),path);
+                store.cleanupUnreferencedPhoto(getFilesDir(),path + ".tmp");
+            }
         });
     }
     private static Bitmap thumbnail(String path, int longest) {

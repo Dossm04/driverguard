@@ -126,6 +126,13 @@ def _web_device(db: Session, driver: Driver, now: datetime) -> Device | None:
     return device
 
 
+@router.get("/me/camera-capabilities")
+def my_camera_capabilities(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Native outbox checks this before uploading observations to an older server."""
+    _own_driver(db, user)
+    return {"measurements_version": 1, "gps_rules": True}
+
+
 @router.post("/me/camera-events")
 def my_camera_events(
     batch: list[CameraEventIn], db: Session = Depends(get_db), user=Depends(get_current_user)
@@ -155,11 +162,18 @@ def my_camera_events(
                 "gps_valid": bool(has_gps and item.gps_valid),
                 "speed_kmh": item.speed_kmh,
                 "value": item.value,
+                "measurements": (
+                    item.measurements.model_dump(exclude_none=True) if item.measurements else None
+                ),
                 "context": {
-                    "source": "pwa_camera", "note": item.note,
+                    "source": item.source, "note": item.note,
                     "detector": item.detector,
                     "model_run_id": item.model_run_id,
                     "model_sha256": item.model_sha256,
+                    "confidence_status": (
+                        "uncalibrated"
+                        if item.detector in {"face_rules", "hand_gesture", "gps_rules"} else None
+                    ),
                 },
                 "status": "new",
                 "is_demo": False,
@@ -176,7 +190,7 @@ def my_camera_events(
         )
         inserted = [r[0] for r in db.execute(stmt).fetchall()]
     db.commit()
-    last = next((r for r in reversed(rows) if r["lat"] is not None), None)
+    last = next((r for r in reversed(rows) if r["gps_valid"]), None)
     if last and driver.vehicle is not None:
         ws.set_live_position(driver.vehicle.id, last["lat"], last["lon"], last["speed_kmh"])
     if inserted:
@@ -209,12 +223,15 @@ def my_camera_heartbeat(
                     device_id=device.id,
                     ts=now,
                     fps=body.fps,
-                    gps_fix=bool(body.lat is not None and body.gps_valid),
+                    gps_fix=bool(body.lat is not None and body.lon is not None and body.gps_valid),
                     net="web",
                 )
             )
     db.commit()
-    if driver.vehicle is not None and body.lat is not None and body.lon is not None:
+    if (
+        driver.vehicle is not None and body.gps_valid
+        and body.lat is not None and body.lon is not None
+    ):
         ws.set_live_position(driver.vehicle.id, body.lat, body.lon, body.speed_kmh)
     return {
         "ok": True,

@@ -240,6 +240,26 @@ export interface SummaryOut {
 
 export type Period = "today" | "7d" | "30d";
 
+/** Actual samples recorded on the device. Missing fields are not zero readings. */
+export interface EventMeasurements {
+  rule_version?: string | null;
+  closed_ms?: number | null;
+  ear?: number | null;
+  ear_baseline?: number | null;
+  blink_count_60s?: number | null;
+  perclos_pct?: number | null;
+  valid_observation_ms?: number | null;
+  coverage_pct?: number | null;
+  yawns_10min?: number | null;
+  jaw_open_ms?: number | null;
+  head_delta?: number | null;
+  yaw_delta?: number | null;
+  away_ms?: number | null;
+  missing_ms?: number | null;
+  speed_limit_kmh?: number | null;
+  sample_latency_ms?: number | null;
+}
+
 export interface EventItem {
   uuid: string;
   type: string;
@@ -259,6 +279,7 @@ export interface EventItem {
   vehicle_plate: string | null;
   driver_phone: string | null;
   context?: Record<string, unknown> | null; // причина SOS, источник (pwa_camera)
+  measurements?: EventMeasurements | null;
 }
 
 export interface DayPoint {

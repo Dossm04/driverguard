@@ -55,7 +55,11 @@ public final class MainActivity extends ComponentActivity {
     private final ExecutorService network=Executors.newSingleThreadExecutor();
     private final AlertPolicy alerts=new AlertPolicy();
     private long mutedUntil, warningToneUntil;
-    private TextView eyeMetric,mouthMetric,fatigueMetric,soundState;
+    private TextView eyeMetric,mouthMetric,fatigueMetric,soundState,eyeCalibrationMetric,poseMetric,gpsMetric;
+    private LocationTracker location;
+    private CheckBox gpsToggle;
+    private volatile boolean gpsEnabled;
+    private volatile int speedLimitKmh=60;
     private Button muteButton;
     private long monitorStarted; private int observedFrames;
     private final AtomicLong newFrame=new AtomicLong();
@@ -86,6 +90,12 @@ public final class MainActivity extends ComponentActivity {
     private String exportText="";
     private final ActivityResultLauncher<String> cameraPermission=registerForActivityResult(
         new ActivityResultContracts.RequestPermission(),granted->{if(granted)startPhone();else status.setText("Разрешите камеру в настройках приложения.");});
+    private final ActivityResultLauncher<String[]> locationPermission=registerForActivityResult(
+        new ActivityResultContracts.RequestMultiplePermissions(),granted->{
+            boolean precise=Boolean.TRUE.equals(granted.get(Manifest.permission.ACCESS_FINE_LOCATION));
+            if(!precise){gpsToggle.setChecked(false);gpsMetric.setText("GPS выключен · для скорости нужно точное местоположение");}
+            else if(gpsEnabled&&running)location.start();
+        });
     private final ActivityResultLauncher<String> export=registerForActivityResult(
         new ActivityResultContracts.CreateDocument("text/csv"),uri->{
             if(uri==null)return;
@@ -103,6 +113,9 @@ public final class MainActivity extends ComponentActivity {
         try {tone=new ToneGenerator(AudioManager.STREAM_MUSIC,85);}catch(RuntimeException unavailable){tone=null;}
         var session=new DriverApi(this).session();
         activeOwner=session==null?null:session.owner();
+        location=new LocationTracker(this);
+        gpsEnabled=getPreferences(MODE_PRIVATE).getBoolean("gps",false);
+        speedLimitKmh=getPreferences(MODE_PRIVATE).getInt("speed_limit",60)==90?90:60;
         buildUi();
         clipRecorder=new ClipRecorder(this,message->{if(!destroyed)recordStatus.setText(message);});
         clipRecorder.prune();
@@ -142,6 +155,9 @@ public final class MainActivity extends ComponentActivity {
         eyeMetric=Ui.text(this,metrics,"ГЛАЗА    —",18,Ui.TEXT);
         mouthMetric=Ui.text(this,metrics,"ЗЕВКИ    —",18,Ui.TEXT);
         fatigueMetric=Ui.text(this,metrics,"УСТАЛОСТЬ    накапливаем наблюдения",15,Ui.MUTED);
+        eyeCalibrationMetric=Ui.text(this,metrics,"МОРГАНИЯ / EAR    настройка по вашему лицу",14,Ui.MUTED);
+        poseMetric=Ui.text(this,metrics,"ПОЛОЖЕНИЕ ГОЛОВЫ    смотрите прямо 3 секунды",14,Ui.MUTED);
+        gpsMetric=Ui.text(this,metrics,"GPS    выключен · скоростные события не создаются",14,Ui.MUTED);
         startCamera=Ui.button(this,box,"Начать наблюдение",this::startPhone);startCamera.setEnabled(false);
         Ui.secondary(this,box,"Завершить наблюдение",()->{stop();status.setText("Наблюдение завершено");});
         LinearLayout sound=Ui.card(this,box);
@@ -158,6 +174,23 @@ public final class MainActivity extends ComponentActivity {
         CheckBox settings=new CheckBox(this);settings.setText("Камера, запись и дополнительные настройки");settings.setTextColor(Ui.MUTED);box.addView(settings);
         LinearLayout advanced=Ui.card(this,box);advanced.setVisibility(View.GONE);
         settings.setOnCheckedChangeListener((v,on)->advanced.setVisibility(on?View.VISIBLE:View.GONE));
+        Ui.secondary(this,advanced,"Настроить по моему лицу заново",()->{
+            alerts.reset();if(tone!=null)tone.stopTone();
+            inference.execute(()->{if(face!=null)face.rules.reset();});
+            status.setText("Смотрите прямо с открытыми глазами 3 секунды");
+        });
+        gpsToggle=new CheckBox(this);gpsToggle.setText("GPS: скорость и положение для панели");gpsToggle.setTextColor(Ui.TEXT);gpsToggle.setChecked(gpsEnabled);advanced.addView(gpsToggle);
+        gpsToggle.setOnCheckedChangeListener((b,on)->{
+            gpsEnabled=on;getPreferences(MODE_PRIVATE).edit().putBoolean("gps",on).apply();
+            if(!on){location.stop();gpsMetric.setText("GPS выключен · скоростные события не создаются");}
+            else if(ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)
+                locationPermission.launch(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION});
+            else if(running)location.start();
+        });
+        Ui.text(this,advanced,"GPS собирается только во время наблюдения. Без свежего точного сигнала нарушения скорости и отвлечения при движении не фиксируются.",13,Ui.MUTED);
+        RadioGroup route=new RadioGroup(this);route.setOrientation(RadioGroup.HORIZONTAL);advanced.addView(route);
+        for(int limit:new int[]{60,90}){RadioButton option=new RadioButton(this);option.setText(limit==60?"Город · 60":"Трасса · 90");option.setTextColor(Ui.TEXT);option.setId(View.generateViewId());route.addView(option);option.setChecked(speedLimitKmh==limit);option.setOnCheckedChangeListener((b,on)->{if(on){speedLimitKmh=limit;getPreferences(MODE_PRIVATE).edit().putInt("speed_limit",limit).apply();}});}
+        Ui.text(this,advanced,"Выберите лимит маршрута перед началом. Это лимит профиля, не распознавание дорожных знаков.",13,Ui.MUTED);
         recordVideo=new CheckBox(this);recordVideo.setText("Записывать видео без звука");recordVideo.setTextColor(Ui.TEXT);advanced.addView(recordVideo);
         recordVideo.setOnCheckedChangeListener((b,on)->{if(running){stop();status.setText("Настройка сохранена · начните наблюдение снова");}});
         recordStatus=Ui.text(this,advanced,"Видео хранится на телефоне: до 48 часов / 512 МБ. Старые завершённые записи удаляются при работе приложения.",13,Ui.MUTED);
@@ -173,7 +206,7 @@ public final class MainActivity extends ComponentActivity {
         experimental.setOnCheckedChangeListener((b,on)->{researchEnabled=on;objects.setText(on?"Покажите лицо и верхнюю часть тела. Дополнительный анализ может снизить скорость.":"Исследовательские модели выключены.");});
         Ui.secondary(this,advanced,"Экспорт журнала CSV",()->inference.execute(()->{exportText=store.csv(activeOwner);ui.post(()->{if(!destroyed)export.launch("DriverGuard-events.csv");});}));
         Ui.secondary(this,advanced,"Отправить очередь сейчас",this::syncNow);
-        Ui.text(this,advanced,"Порог закрытия глаз: 1,5 с. Возможный зевок: открывание рта 1,2 с; предупреждение при 3 эпизодах за 10 мин. PERCLOS: доля закрытых глаз за 60 с наблюдения. Это признаки для предупреждения, а не диагноз.",13,Ui.MUTED);
+        Ui.text(this,advanced,"Параметры DriverGuard\nГлаза: 1,5 с; EAR ниже 55% вашей базы.\nМоргания: замеченные эпизоды 60–500 мс, окно 60 с; короткие моргания камера может пропускать.\nPERCLOS: ≥20% за 60 с, минимум 15 с валидного наблюдения и 80% покрытия.\nВозможный зевок: рот открыт 1,2 с; предупреждение при 3 эпизодах за 10 мин.\nНаклон: изменение глубины точек головы >0,13 в течение 2 с.\nОтвлечение: поворот от базы >0,35 на 8/15 с при GPS >20 км/ч.\nСкорость: превышение выбранного лимита более 10 с.\nЛица нет: локальный сигнал после 3 с; событие после 5 мин при GPS >5 км/ч.\nЭто визуальные признаки для проверки, не диагноз и не доказательство нарушения.",13,Ui.MUTED);
     }
     private void updateSoundLabel(){
         long left=Math.max(0,mutedUntil-SystemClock.elapsedRealtime());
@@ -195,6 +228,7 @@ public final class MainActivity extends ComponentActivity {
         if(!ready||authBusy)return;
         if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED) {cameraPermission.launch(Manifest.permission.CAMERA);return;}
         stop();source="phone";running=true;int token=generation;resetSession();
+        if(gpsEnabled)location.start();
         preview.setVisibility(View.VISIBLE);networkVideo.setVisibility(View.GONE);status.setText("Запускаем камеру…");
         var future=ProcessCameraProvider.getInstance(this);
         future.addListener(()->{
@@ -229,6 +263,7 @@ public final class MainActivity extends ComponentActivity {
         String name=user.getText().toString();String pass=password.getText().toString();
         if(name.trim().isEmpty()||pass.trim().isEmpty()){status.setText("Введите имя и пароль камеры.");return;}
         stop();source="rtsp";running=true;int token=generation;resetSession();
+        if(gpsEnabled)location.start();
         recordStatus.setText("Анализ потока Hikvision. Запись на microSD настраивается в камере отдельно.");
         preview.setVisibility(View.GONE);networkVideo.setVisibility(View.VISIBLE);status.setText("Подключаем камеру…");
         Uri uri=Uri.parse("rtsp://"+Uri.encode(name)+":"+Uri.encode(pass)+"@"+address+":554/Streaming/Channels/102");
@@ -277,7 +312,7 @@ public final class MainActivity extends ComponentActivity {
         try {
             if(destroyed||!running||token!=generation)return;
             long frame=SystemClock.elapsedRealtime();newFrame.set(frame);
-            if(frame-lastPhoneSample<200)return;
+            if(frame-lastPhoneSample<100)return;
             lastPhoneSample=frame;
             long capturedAt=System.currentTimeMillis();
             image=proxy.toBitmap();
@@ -293,27 +328,34 @@ public final class MainActivity extends ComponentActivity {
     // Single inference executor owns model state and commits events before optional research work.
     private void processFrame(Bitmap image,long frame,int token,String src,String owner,long capturedAt,boolean extra) {
         if(destroyed||!running||token!=generation)return;
-        DmsRules.Result result=face.analyze(image,frame);
+        DrivingSample gps=gpsEnabled?location.snapshot(frame):DrivingSample.unavailable();
+        double speed=gps.validAt(frame)?gps.speedKmh():Double.NaN;
+        int limit=speedLimitKmh;
+        DmsRules.Result result=face.analyze(image,frame,speed,limit);
         long latency=SystemClock.elapsedRealtime()-frame;
         if(destroyed||!running||token!=generation)return;
         if(latency>1500){face.rules.reset();ui.post(()->{if(!destroyed&&running&&token==generation)status.setText("Обработка задерживается. Выключите дополнительные модели.");});return;}
         int saved=0;
         for(String event:result.events()){
-            double value=switch(event){case "fatigue_perclos"->result.perclos()*100;case "fatigue_yawning","yawn"->result.yawnCount();case "head_nod"->result.headDownMs()/1000.0;default->result.closedMs()/1000.0;};
-            try{store.add(event,src,owner,capturedAt,result.closedMs(),result.confidence(),value);saved++;}
+            double value=switch(event){case "fatigue_perclos"->result.perclos()*100;case "fatigue_yawning","yawn"->result.yawnCount();case "head_nod"->result.headDownMs()/1000.0;case "distraction_warning","distraction_critical"->result.movingAwayMs()/1000.0;case "speeding"->speed-limit;case "camera_sabotage"->result.movingMissingMs()/1000.0;case "face_missing"->result.missingMs()/1000.0;default->result.closedMs()/1000.0;};
+            try{store.add(event,src,owner,capturedAt,result.closedMs(),result.confidence(),value,measurementContext(result,gps,frame,limit,latency));saved++;}
             catch(Exception failure){ui.post(()->{if(!destroyed){savedEvents.setText("Событие не сохранено · проверьте свободное место");syncStatus.setText("Не удалось записать событие на телефон");}});}
         }
         final int persisted=saved;
         ui.post(()->{
             if(destroyed||token!=generation||!running)return;
             alerts.onFrame(frame,result);observedFrames++;
-            String label=!result.faceVisible()?"Лицо не видно":result.closureAlarm()?"Откройте глаза · остановитесь":result.fatigueActive()?"Признаки усталости · нужен отдых":result.headDownMs()>=2000?"Поднимите голову":result.eyesClosed()?"Глаза закрыты":"Наблюдение активно";
+            String label=!result.faceVisible()?"Лицо не видно":result.closureAlarm()?"Откройте глаза · остановитесь":result.distractionCritical()?"Верните внимание на дорогу":result.fatigueActive()?"Признаки усталости · нужен отдых":result.headDownMs()>=2000?"Поднимите голову":result.eyesClosed()?"Глаза закрыты":"Наблюдение активно";
             status.setText(label);status.setTextColor(result.closureAlarm()?Ui.RED:result.fatigueActive()||!result.faceVisible()?Ui.AMBER:Ui.GREEN);
             eyeMetric.setText(!result.faceVisible()?"ГЛАЗА    нет наблюдения":result.eyesClosed()?String.format(java.util.Locale.US,"ГЛАЗА    закрыты %.1f с",result.closedMs()/1000.0):"ГЛАЗА    открыты");
             eyeMetric.setTextColor(result.closureAlarm()?Ui.RED:Ui.TEXT);
             mouthMetric.setText("ВОЗМОЖНЫЕ ЗЕВКИ    "+result.yawnCount()+" / 10 мин"+(result.jawOpenMs()>0?" · рот открыт":""));
             fatigueMetric.setText(result.perclosReady()?"PERCLOS    "+Math.round(result.perclos()*100)+"% · закрытие глаз за окно 60 с":"PERCLOS    наблюдений "+result.validMs()/1000+" с / минимум 15 с");
-            details.setText("На телефоне · "+latency+" мс/кадр · "+(result.headCalibrated()?"положение головы настроено":"смотрите прямо 3 секунды для настройки"));
+            eyeCalibrationMetric.setText("ЗАМЕЧЕНО МОРГАНИЙ    "+result.blinkCount()+" / 60 с\n"+(result.eyeCalibrated()?"EAR    "+metric(result.ear())+" · ваша база "+metric(result.earBaseline()):"EAR    смотрите прямо с открытыми глазами"));
+            poseMetric.setText(result.faceVisible()?"Наклон Δ "+metric(result.headDelta())+" · поворот Δ "+metric(result.yawDelta())+String.format(java.util.Locale.US,"\nГолова отвёрнута %.1f с",result.awayMs()/1000.0):"Лицо вне кадра · "+result.missingMs()/1000+" с");
+            gpsMetric.setText(Double.isFinite(speed)?String.format(java.util.Locale.US,"GPS    %.0f км/ч · лимит %d · точность ±%.0f м",speed,limit,gps.accuracyMeters()):gpsEnabled?"GPS    ждём точный свежий сигнал · скоростные события выключены":"GPS    выключен · скоростные события не создаются");
+            double fps=observedFrames*1000.0/Math.max(1,SystemClock.elapsedRealtime()-monitorStarted);
+            details.setText(String.format(java.util.Locale.US,"На телефоне · %d мс/кадр · %.1f кадр/с",latency,fps));
             if(persisted>0){sessionEventCount+=persisted;savedEvents.setText("Сохранено за сеанс: "+sessionEventCount);}
         });
         if(extra){String candidateText;
@@ -323,6 +365,18 @@ public final class MainActivity extends ComponentActivity {
             ui.post(()->{if(!destroyed&&token==generation&&running&&researchEnabled)objects.setText(display);});
         }
     }
+    private String measurementContext(DmsRules.Result r,DrivingSample gps,long frame,int limit,long latency)throws org.json.JSONException{
+        org.json.JSONObject m=new org.json.JSONObject().put("rule_version","android-0.6").put("closed_ms",r.closedMs())
+            .put("blink_count_60s",r.blinkCount()).put("perclos_pct",Math.max(0,Math.min(100,r.perclos()*100))).put("valid_observation_ms",r.validMs())
+            .put("coverage_pct",Math.max(0,Math.min(100,r.validCoverage()*100))).put("yawns_10min",r.yawnCount()).put("jaw_open_ms",r.jawOpenMs())
+            .put("away_ms",r.awayMs()).put("missing_ms",r.missingMs()).put("speed_limit_kmh",limit).put("sample_latency_ms",latency);
+        if(Float.isFinite(r.ear())&&r.ear()>=0&&r.ear()<=2)m.put("ear",r.ear());if(r.eyeCalibrated()&&Float.isFinite(r.earBaseline())&&r.earBaseline()>=0&&r.earBaseline()<=2)m.put("ear_baseline",r.earBaseline());
+        if(Float.isFinite(r.headDelta()))m.put("head_delta",r.headDelta());if(Float.isFinite(r.yawDelta()))m.put("yaw_delta",r.yawDelta());
+        org.json.JSONObject meta=new org.json.JSONObject().put("measurements",m).put("gps_valid",gps.validAt(frame));
+        if(gps.validAt(frame))meta.put("lat",gps.latitude()).put("lon",gps.longitude()).put("speed_kmh",gps.speedKmh());
+        return meta.toString();
+    }
+    private static String metric(float value){return Float.isFinite(value)?String.format(java.util.Locale.US,"%.2f",value):"—";}
     private void resetSession(){sessionEventCount=0;observedFrames=0;monitorStarted=SystemClock.elapsedRealtime();savedEvents.setText("Сохранено за сеанс: 0");status.setTextColor(Ui.TEXT);inference.execute(()->lastPhoneSample=0);}
     private void playAlert(int duration){if(tone!=null)tone.startTone(ToneGenerator.TONE_PROP_BEEP2,duration);}
     private void testSound(){
@@ -334,6 +388,7 @@ public final class MainActivity extends ComponentActivity {
     private void stop() {
         generation++;running=false;alerts.reset();warningToneUntil=0;if(tone!=null)tone.stopTone();ui.removeCallbacks(tick);newFrame.set(0);sampledFrame=0;
         if(clipRecorder!=null)clipRecorder.stop();
+        if(location!=null)location.stop();
         if(cameras!=null)cameras.unbindAll();
         if(player!=null){player.release();player=null;}
         if(face!=null)inference.execute(()->face.rules.reset());
@@ -351,9 +406,10 @@ public final class MainActivity extends ComponentActivity {
     private void syncNow() {
         if(syncing||authBusy||destroyed)return;syncing=true;
         final boolean monitoring=running;final double fps=observedFrames*1000.0/Math.max(1,SystemClock.elapsedRealtime()-monitorStarted);
+        final long locationTime=SystemClock.elapsedRealtime();final DrivingSample gps=gpsEnabled?location.snapshot(locationTime):DrivingSample.unavailable();
         network.execute(()->{
             String message;
-            try {message=SyncCoordinator.events(this,store);if(monitoring)SyncCoordinator.heartbeat(this,fps);
+            try {message=SyncCoordinator.events(this,store);if(monitoring)SyncCoordinator.heartbeat(this,fps,gps,SystemClock.elapsedRealtime());
                 try(AuditStore audits=new AuditStore(this)){audits.flush(new DriverApi(this));}
             }
             catch(SecurityException e){message="Войдите снова · события остаются на телефоне";}

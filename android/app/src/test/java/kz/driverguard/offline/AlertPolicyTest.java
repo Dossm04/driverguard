@@ -92,4 +92,23 @@ public class AlertPolicyTest {
         policy.onFrame(20000,rules.update(20000,true,0,0,0));
         assertFalse(policy.poll(20000,true,false).warningPulse());
     }
+    @Test public void cameraMissingProducesOneWarningEvenWithoutFace() {
+        DmsRules rules=new DmsRules(); AlertPolicy policy=new AlertPolicy(); int warnings=0;
+        for(int t=0;t<=6000;t+=100) {
+            policy.onFrame(t,rules.update(t,false,0,0));
+            if(policy.poll(t,true,false).warningPulse()){warnings++;assertEquals(3000,t);}
+        }
+        assertEquals(1,warnings);
+    }
+    @Test public void criticalMovingDistractionRepeatsButUnknownSpeedStopsIt() {
+        DmsRules rules=new DmsRules(); AlertPolicy policy=new AlertPolicy(); int pulses=0;
+        for(int t=0;t<=20000;t+=100) {
+            DmsRules.Result result=rules.update(t,true,0,0,0,0,.3f,t<=3000?0:.5f,30,90);
+            policy.onFrame(t,result); AlertPolicy.Decision decision=policy.poll(t,true,false);
+            if(t>=18100) {assertTrue(decision.active());if(decision.playPulse())pulses++;}
+        }
+        assertEquals(3,pulses);
+        policy.onFrame(20100,rules.update(20100,true,0,0,0,0,.3f,.5f,Double.NaN,90));
+        assertFalse(policy.poll(20100,true,false).active());
+    }
 }

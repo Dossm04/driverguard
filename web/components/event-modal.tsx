@@ -1,7 +1,6 @@
 "use client";
 
-/* Модалка события (WEB-4): клип из MinIO (если есть) или стилизованный ИК-кадр,
-   метаданные, review-кнопки. Все цвета — токенами. */
+/* Реальные параметры события и клип, если он загружен. Все цвета — токенами. */
 
 import { useQuery } from "@tanstack/react-query";
 import { Check, TriangleAlert, User, X } from "lucide-react";
@@ -11,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { api, type EventItem } from "@/lib/api";
 import { EVENT_ICONS, STATUS_PILLS, eventTitle } from "@/lib/events";
+import { measurementRows } from "@/lib/event-measurements";
 import { t } from "@/lib/i18n";
 import { useLangVersion } from "@/lib/i18n/react";
 import { fleetDate, fleetDayMonth, fleetTime } from "@/lib/time";
@@ -63,7 +63,9 @@ export function EventModal({
   if (!event) return null;
   const Icon = EVENT_ICONS[event.type] ?? User;
   const pill = STATUS_PILLS[event.status];
-  const clock = fleetTime(event.ts, true);
+  const readings = measurementRows(event.measurements);
+  const uncalibrated = event.context?.confidence_status === "uncalibrated"
+    || ["face_rules", "hand_gesture", "gps_rules"].includes(String(event.context?.detector));
 
   return (
     <div
@@ -75,7 +77,7 @@ export function EventModal({
       }}
       style={{ background: "rgb(var(--bg) / 0.75)" }}
     >
-      <div className="w-full max-w-2xl rounded-card border border-line bg-card p-5 shadow-2xl">
+      <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-card border border-line bg-card p-5 shadow-2xl">
         <div className="mb-4 flex items-center gap-3">
           <div className="grid h-9 w-9 flex-none place-items-center rounded-btn bg-danger/15 text-danger">
             <Icon size={18} />
@@ -87,7 +89,7 @@ export function EventModal({
           </Button>
         </div>
 
-        {/* Клип из MinIO; ошибки не прячем (правило 8 CLAUDE.md), без клипа — ИК-кадр */}
+        {/* Отсутствие клипа не подменяется фиктивным кадром камеры. */}
         {event.clip_key && (clip.isError || videoBroken) ? (
           <div className="grid aspect-video w-full place-items-center rounded-btn border border-danger/40 bg-danger/10 p-4 text-center">
             <span className="flex flex-col items-center gap-2 text-sm font-semibold text-danger">
@@ -108,25 +110,8 @@ export function EventModal({
             onError={() => setVideoBroken(true)}
           />
         ) : (
-          <div
-            className="relative grid aspect-video place-items-center overflow-hidden rounded-btn"
-            style={{
-              background:
-                "radial-gradient(ellipse at 50% 42%, rgb(var(--ok) / 0.18) 0%, rgb(var(--bg)) 75%)",
-            }}
-          >
-            <div
-              className="pointer-events-none absolute inset-0"
-              style={{
-                background:
-                  "repeating-linear-gradient(0deg, rgb(var(--txt) / 0.04) 0 1px, transparent 1px 3px)",
-              }}
-            />
-            <User size={96} className="text-mut/60" />
-            <span className="num absolute left-3 top-2.5 flex items-center gap-1.5 font-mono text-xs text-ok">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
-              {t("ИК ·")}{" "}{clock} · 640×480 · REC
-            </span>
+          <div className="rounded-btn border border-line bg-page p-5 text-center text-sm text-mut">
+            {event.clip_key ? t("Загрузка видеоклипа…") : t("Видеоклип не загружен")}
           </div>
         )}
 
@@ -157,7 +142,7 @@ export function EventModal({
           <div className="flex justify-between gap-3">
             <dt className="text-mut">{t("Координаты")}</dt>
             <dd className="font-semibold">
-              {event.lat != null && event.lon != null ? (
+              {event.gps_valid && event.lat != null && event.lon != null ? (
                 <a
                   className="text-accent hover:underline"
                   target="_blank"
@@ -172,16 +157,48 @@ export function EventModal({
             </dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-mut">Confidence</dt>
-            <dd className="font-semibold">{Math.round(event.confidence * 100)}%</dd>
+            <dt className="text-mut">{t("Оценка уверенности")}</dt>
+            <dd className="text-right font-semibold">
+              {uncalibrated ? t("Не калибрована") : `${Math.round(event.confidence * 100)}%`}
+            </dd>
           </div>
-          {event.context?.source === "pwa_camera" && (
+          {["pwa_camera", "android_camera"].includes(String(event.context?.source)) && (
             <div className="flex justify-between gap-3">
               <dt className="text-mut">{t("Источник")}</dt>
-              <dd className="font-semibold">{t("Камера телефона (PWA)")}</dd>
+              <dd className="font-semibold">
+                {event.context?.source === "android_camera"
+                  ? t("Приложение Android") : t("Камера телефона (PWA)")}
+              </dd>
             </div>
           )}
         </dl>
+
+        {readings.length > 0 && (
+          <section className="mt-4 rounded-btn border border-line bg-page p-4">
+            <h4 className="text-sm font-semibold">{t("Измерения в момент события")}</h4>
+            <dl className="num mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+              {readings.map((reading) => (
+                <div key={reading.key} className="flex justify-between gap-3">
+                  <dt className="text-mut">{reading.label}</dt>
+                  <dd className="whitespace-nowrap text-right font-semibold">{reading.value}</dd>
+                </div>
+              ))}
+            </dl>
+            {event.measurements?.rule_version && (
+              <p className="mt-3 text-xs text-mut">
+                {t("Версия правил")}: {event.measurements.rule_version}
+              </p>
+            )}
+            <p className="mt-2 text-xs leading-relaxed text-mut">
+              {t("Это наблюдения устройства, а не подтверждение сна или медицинский диагноз.")}
+            </p>
+          </section>
+        )}
+        {typeof event.context?.note === "string" && event.context.note && (
+          <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-mut">
+            {event.context.note}
+          </p>
+        )}
 
         {review && (
           <div className="mt-4 flex flex-wrap gap-2">
@@ -208,7 +225,7 @@ export function EventModal({
           </div>
         )}
         <p className="mt-4 text-xs leading-relaxed text-mut">
-          {t("«Ложное срабатывание» возвращает баллы водителю, а кадр автоматически уходит в датасет дообучения — модель становится точнее с каждой неделей.")}
+          {t("«Ложное срабатывание» исключает событие из оценки водителя и добавляет его в очередь проверки. Дообучение проводится отдельно после проверки данных.")}
         </p>
       </div>
     </div>

@@ -2,6 +2,7 @@ package kz.driverguard.offline;
 
 import android.content.ContentValues;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
@@ -15,10 +16,15 @@ import org.json.*;
 /** Durable, owner-scoped audit drafts and upload outbox. Submitted drafts are immutable. */
 final class AuditStore extends SQLiteOpenHelper {
     private static final Object FLUSH_LOCK = new Object();
+    private static final Object PHOTO_LOCK = new Object();
+    private final SharedPreferences capture;
     record Template(JSONArray items, JSONArray slots) {}
     record Draft(String id, String owner, String base, JSONObject answers, JSONObject photos, String state,
                  String createdAt, JSONObject result, JSONArray items, JSONArray slots, String lastError) {}
-    AuditStore(Context context) { super(context.getApplicationContext(), "audits.db", null, 1); }
+    AuditStore(Context context) {
+        super(context.getApplicationContext(), "audits.db", null, 1);
+        capture = context.getApplicationContext().getSharedPreferences("audit_capture", Context.MODE_PRIVATE);
+    }
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE templates(owner TEXT PRIMARY KEY, items TEXT NOT NULL, slots TEXT NOT NULL)");
         db.execSQL("CREATE TABLE audits(id TEXT PRIMARY KEY, owner TEXT NOT NULL, base TEXT NOT NULL, answers TEXT NOT NULL, photos TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, result TEXT NOT NULL, items TEXT NOT NULL, slots TEXT NOT NULL, last_error TEXT NOT NULL)");
@@ -58,8 +64,11 @@ final class AuditStore extends SQLiteOpenHelper {
     }
     synchronized void save(Draft draft) {
         if (!draft.state().equals("draft")) throw new IllegalStateException("Отправленный осмотр нельзя изменять");
-        ContentValues row = new ContentValues(); row.put("answers", draft.answers().toString()); row.put("photos", draft.photos().toString());
-        getWritableDatabase().update("audits", row, "id=? AND owner=? AND state='draft'", new String[]{draft.id(), draft.owner()});
+        synchronized (PHOTO_LOCK) {
+            ContentValues row = new ContentValues(); row.put("answers", draft.answers().toString()); row.put("photos", draft.photos().toString());
+            if (getWritableDatabase().update("audits", row, "id=? AND owner=? AND state='draft'", new String[]{draft.id(), draft.owner()}) != 1)
+                throw new IllegalStateException("Осмотр уже отправлен или удалён");
+        }
     }
     synchronized void queue(Draft draft) throws Exception {
         List<String> missing = AuditValidation.missing(draft.items(), draft.slots(), draft.answers(), draft.photos());
@@ -82,15 +91,20 @@ final class AuditStore extends SQLiteOpenHelper {
     }
     /** Remove only confirmed-uploaded photos, never draft/queued evidence. Server copies remain. */
     synchronized void prunePhotos(File filesDirectory) {
+        synchronized (PHOTO_LOCK) { prunePhotosLocked(filesDirectory); }
+    }
+    private void prunePhotosLocked(File filesDirectory) {
         File folder = new File(filesDirectory, "audit_photos");
         if (!folder.isDirectory()) return;
         Set<String> protectedFiles = new HashSet<>();
+        Set<String> allReferences = new HashSet<>();
         List<Draft> sent = new ArrayList<>();
         try (Cursor cursor = getReadableDatabase().rawQuery("SELECT * FROM audits ORDER BY created_at", null)) {
             while (cursor.moveToNext()) {
                 Draft row = read(cursor);
                 if (row.state().equals("sent")) sent.add(row);
                 else row.photos().keys().forEachRemaining(key -> protectedFiles.add(row.photos().optString(key)));
+                row.photos().keys().forEachRemaining(key -> allReferences.add(row.photos().optString(key)));
             }
         }
         File[] files = folder.listFiles(); if (files == null) return;
@@ -103,13 +117,52 @@ final class AuditStore extends SQLiteOpenHelper {
             Iterator<String> slots = row.photos().keys();
             while (slots.hasNext()) {
                 File photo = new File(row.photos().optString(slots.next()));
-                if (protectedFiles.contains(photo.getAbsolutePath())) continue;
-                try {
-                    if (!photo.getCanonicalFile().getParentFile().equals(folder.getCanonicalFile())) continue;
-                    long bytes = photo.length(); if (photo.delete()) total -= bytes;
-                } catch (IOException ignored) { }
+                long bytes = photo.length();
+                if (deletePhotoIfUnreferenced(filesDirectory,photo.getPath(),protectedFiles,capture.getString("path",null))) total -= bytes;
             }
         }
+        // Previous versions left cancelled captures and failed compression files behind.
+        // A capture awaiting an Activity result is protected even across process recreation.
+        for (File file : files) deletePhotoIfUnreferenced(filesDirectory,file.getPath(),allReferences,capture.getString("path",null));
+    }
+    void rememberCapture(String slot, String path, String draft, String owner) throws IOException {
+        synchronized (PHOTO_LOCK) {
+            if (!capture.edit().putString("slot",slot).putString("path",path).putString("draft",draft).putString("owner",owner).commit())
+                throw new IOException("Не удалось сохранить незавершённое фото");
+        }
+    }
+    void clearCapture(String expectedPath) {
+        synchronized (PHOTO_LOCK) {
+            if (Objects.equals(expectedPath,capture.getString("path",null))) capture.edit().clear().commit();
+        }
+    }
+    synchronized void cleanupUnreferencedPhoto(File filesDirectory, String path) {
+        synchronized (PHOTO_LOCK) {
+            Set<String> references = new HashSet<>();
+            try (Cursor cursor = getReadableDatabase().rawQuery("SELECT photos FROM audits",null)) {
+                while (cursor.moveToNext()) {
+                    JSONObject photos = new JSONObject(cursor.getString(0));
+                    photos.keys().forEachRemaining(key -> references.add(photos.optString(key)));
+                }
+            } catch (JSONException damaged) { return; }
+            deletePhotoIfUnreferenced(filesDirectory,path,references,capture.getString("path",null));
+        }
+    }
+    /** Filesystem guard shared by immediate cancellation and periodic orphan cleanup. */
+    static boolean deletePhotoIfUnreferenced(File filesDirectory, String path, Set<String> references, String activeCapture) {
+        if (path == null || path.isBlank()) return false;
+        try {
+            File root = filesDirectory.getCanonicalFile(), folder = new File(root,"audit_photos").getCanonicalFile();
+            if (!root.equals(folder.getParentFile())) return false;
+            File photo = new File(path).getCanonicalFile();
+            if (!folder.equals(photo.getParentFile()) || !photo.isFile()
+                || !photo.getName().matches("[0-9a-fA-F-]{36}\\.jpg(?:\\.tmp)?")) return false;
+            for (String reference : references) if (!reference.isBlank() && photo.equals(new File(reference).getCanonicalFile())) return false;
+            if (activeCapture != null && !activeCapture.isBlank()) {
+                if (photo.equals(new File(activeCapture).getCanonicalFile()) || photo.equals(new File(activeCapture + ".tmp").getCanonicalFile())) return false;
+            }
+            return photo.delete();
+        } catch (IOException | SecurityException failure) { return false; }
     }
     synchronized void markSent(String id, String owner, JSONObject response) {
         ContentValues row = new ContentValues(); row.put("state", "sent"); row.put("result", response.toString()); row.put("last_error", "");

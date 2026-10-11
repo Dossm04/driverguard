@@ -97,6 +97,9 @@ def ingest_events(
                 "speed_kmh": item.speed_kmh,
                 "value": item.value,
                 "context": item.context,
+                "measurements": (
+                    item.measurements.model_dump(exclude_none=True) if item.measurements else None
+                ),
                 "status": "new",
                 "is_demo": item.is_demo,
                 "created_at": now,

@@ -10,6 +10,11 @@ final class SyncCoordinator {
         synchronized(LOCK){
             DriverApi api=new DriverApi(context);var session=api.session();
             if(session==null)return "Локальный режим · войдите для отправки";
+            if(store.pendingCount(session.owner())>0){
+                JSONObject capabilities=api.get("/drivers/me/camera-capabilities");
+                if(capabilities.optInt("measurements_version",0)<1||!capabilities.optBoolean("gps_rules",false))
+                    return "Серверу нужно обновление · измерения сохранены на телефоне";
+            }
             EventSync sync=new EventSync((address,token,body)->{
                 var current=api.session();
                 if(current==null||!current.owner().equals(session.owner()))throw new SecurityException("Аккаунт изменился. Очередь сохранена.");
@@ -22,7 +27,12 @@ final class SyncCoordinator {
         }
     }
     static void heartbeat(Context c,double fps)throws Exception{
+        heartbeat(c,fps,DrivingSample.unavailable(),0);
+    }
+    static void heartbeat(Context c,double fps,DrivingSample gps,long now)throws Exception{
         DriverApi api=new DriverApi(c);if(api.session()==null)return;
-        api.post("/drivers/me/camera-heartbeat",new JSONObject().put("gps_valid",false).put("fps",Math.max(0,Math.min(120,fps))));
+        JSONObject body=new JSONObject().put("gps_valid",gps.validAt(now)).put("fps",Math.max(0,Math.min(120,fps)));
+        if(gps.validAt(now))body.put("lat",gps.latitude()).put("lon",gps.longitude()).put("speed_kmh",gps.speedKmh());
+        api.post("/drivers/me/camera-heartbeat",body);
     }
 }

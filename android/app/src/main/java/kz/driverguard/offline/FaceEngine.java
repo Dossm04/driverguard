@@ -21,6 +21,9 @@ final class FaceEngine implements AutoCloseable {
             .setMinTrackingConfidence(0.6f).build());
     }
     DmsRules.Result analyze(Bitmap bitmap,long now) {
+        return analyze(bitmap, now, Double.NaN, 90);
+    }
+    DmsRules.Result analyze(Bitmap bitmap,long now,double verifiedSpeedKmh,int speedLimitKmh) {
         long timestamp=Math.max(now,lastTime+1); lastTime=timestamp;
         MPImage image=new BitmapImageBuilder(bitmap).build();
         try {
@@ -33,23 +36,20 @@ final class FaceEngine implements AutoCloseable {
                     if(c.categoryName().equals("jawOpen")) jaw=c.score();
                 }
             }
-            float pitch=Float.NaN;
-            if(!r.faceLandmarks().isEmpty() && r.faceLandmarks().get(0).size()>291) {
+            FaceGeometry.Measurements geometry = null;
+            if(!r.faceLandmarks().isEmpty() && r.faceLandmarks().get(0).size()>454) {
                 var points=r.faceLandmarks().get(0);
-                var chin=points.get(152);var forehead=points.get(10);
-                float vertical=(chin.y()-forehead.y())*bitmap.getHeight();
-                float depth=(chin.z()-forehead.z())*bitmap.getWidth();
-                if(vertical>bitmap.getHeight()*0.05f)pitch=(float)Math.atan2(depth,vertical);
-                var top=points.get(13);var bottom=points.get(14);
-                var mouthLeft=points.get(61);var mouthRight=points.get(291);
-                double width=Math.hypot((mouthLeft.x()-mouthRight.x())*bitmap.getWidth(),
-                    (mouthLeft.y()-mouthRight.y())*bitmap.getHeight());
-                double gap=Math.hypot((top.x()-bottom.x())*bitmap.getWidth(),
-                    (top.y()-bottom.y())*bitmap.getHeight());
-                // Reject missing/collapsed/impossible geometry, not a second yawn classifier.
-                if(width<2 || !Double.isFinite(gap) || gap/width>3)jaw=Float.NaN;
+                float[] x=new float[points.size()],y=new float[points.size()],z=new float[points.size()];
+                for(int i=0;i<points.size();i++) {
+                    var p=points.get(i); x[i]=p.x(); y[i]=p.y(); z[i]=p.z();
+                }
+                geometry=FaceGeometry.measure(x,y,z,bitmap.getWidth(),bitmap.getHeight());
+                // Geometry checks validate the measurement; mouth opening is not proof of a yawn.
+                if(!geometry.mouthValid())jaw=Float.NaN;
             }
-            return rules.update(now,!r.faceLandmarks().isEmpty(),left,right,jaw,pitch);
+            return rules.update(now,!r.faceLandmarks().isEmpty(),left,right,jaw,
+                geometry==null?Float.NaN:geometry.headDepth(), geometry==null?Float.NaN:geometry.ear(),
+                geometry==null?Float.NaN:geometry.yaw(),verifiedSpeedKmh,speedLimitKmh);
         } finally { image.close(); }
     }
     @Override public void close() { model.close(); }

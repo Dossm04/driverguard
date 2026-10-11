@@ -10,9 +10,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 final class EventStore extends SQLiteOpenHelper implements EventOutbox {
-    EventStore(Context c) {super(c,"events.db",null,3);setWriteAheadLoggingEnabled(true);}
+    // Local observations and acknowledged events expire; unsent owner-scoped events never do.
+    static final String EXPIRED_EVENTS_SELECTION = "state IN ('sent','local') AND at<?";
+    EventStore(Context c) {super(c,"events.db",null,4);setWriteAheadLoggingEnabled(true);}
     @Override public void onCreate(SQLiteDatabase db) {
-        db.execSQL("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL, uuid TEXT UNIQUE, owner TEXT, state TEXT NOT NULL DEFAULT 'local', closed_ms INTEGER NOT NULL DEFAULT 0, confidence REAL NOT NULL DEFAULT 0, value REAL NOT NULL DEFAULT 0)");
+        db.execSQL("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL, uuid TEXT UNIQUE, owner TEXT, state TEXT NOT NULL DEFAULT 'local', closed_ms INTEGER NOT NULL DEFAULT 0, confidence REAL NOT NULL DEFAULT 0, value REAL NOT NULL DEFAULT 0, metadata TEXT)");
     }
     @Override public void onUpgrade(SQLiteDatabase db,int oldVersion,int newVersion) {
         if(oldVersion<2){
@@ -22,22 +24,26 @@ final class EventStore extends SQLiteOpenHelper implements EventOutbox {
             db.execSQL("ALTER TABLE events ADD COLUMN confidence REAL NOT NULL DEFAULT 0");db.execSQL("CREATE UNIQUE INDEX events_uuid ON events(uuid)");
         }
         if(oldVersion<3){db.execSQL("ALTER TABLE events ADD COLUMN value REAL NOT NULL DEFAULT 0");db.execSQL("UPDATE events SET value=closed_ms/1000.0 WHERE kind='eyes_closed'");}
+        if(oldVersion<4)db.execSQL("ALTER TABLE events ADD COLUMN metadata TEXT");
     }
     void add(String kind,String source,String owner,long at,long closedMs,float confidence) {
         add(kind,source,owner,at,closedMs,confidence,closedMs/1000.0);
     }
     void add(String kind,String source,String owner,long at,long closedMs,float confidence,double value) {
+        add(kind,source,owner,at,closedMs,confidence,value,null);
+    }
+    void add(String kind,String source,String owner,long at,long closedMs,float confidence,double value,String metadata) {
         SQLiteDatabase db=getWritableDatabase();
-        db.delete("events","state='sent' AND at<?",new String[]{Instant.now().minusSeconds(30L*86400).toString()});
+        db.delete("events",EXPIRED_EVENTS_SELECTION,new String[]{Instant.now().minusSeconds(30L*86400).toString()});
         try(Cursor c=db.rawQuery("SELECT COUNT(*) FROM events",null)){c.moveToFirst();if(c.getLong(0)>=50000)throw new IllegalStateException("Journal is full. Export the saved events.");}
         ContentValues v=new ContentValues();v.put("at",Instant.ofEpochMilli(at).toString());v.put("kind",kind);v.put("source",source);
         v.put("uuid",UUID.randomUUID().toString());v.put("owner",owner);v.put("state",owner!=null&&EventPayload.uploadable(kind)?"pending":"local");
-        v.put("closed_ms",closedMs);v.put("confidence",confidence);v.put("value",value);db.insertOrThrow("events",null,v);
+        v.put("closed_ms",closedMs);v.put("confidence",confidence);v.put("value",value);v.put("metadata",metadata);db.insertOrThrow("events",null,v);
     }
     public List<Pending> pending(String owner) {
         List<Pending> list=new ArrayList<>();if(owner==null)return list;
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT uuid,at,source,closed_ms,confidence,kind,value FROM events WHERE owner=? AND state='pending' ORDER BY id LIMIT 20",new String[]{owner})){
-            while(c.moveToNext())list.add(new Pending(c.getString(0),c.getString(1),c.getString(2),c.getLong(3),c.getFloat(4),c.getString(5),c.getDouble(6)));
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT uuid,at,source,closed_ms,confidence,kind,value,metadata FROM events WHERE owner=? AND state='pending' ORDER BY id LIMIT 20",new String[]{owner})){
+            while(c.moveToNext())list.add(new Pending(c.getString(0),c.getString(1),c.getString(2),c.getLong(3),c.getFloat(4),c.getString(5),c.getDouble(6),c.isNull(7)?null:c.getString(7)));
         }return list;
     }
     public void acknowledge(String owner,List<Pending> batch) {

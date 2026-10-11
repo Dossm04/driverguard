@@ -142,6 +142,7 @@ class Event(Base):
     # Числовая характеристика: секунды закрытия глаз, +км/ч превышения, g торможения
     value: Mapped[float | None] = mapped_column(Float)
     context: Mapped[dict | None] = mapped_column(JSONB)
+    measurements: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     clip_key: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(20), default="new")
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

@@ -246,6 +246,29 @@ class EventClipInfo(BaseModel):
     duration_s: int | None = None
 
 
+class EventMeasurements(BaseModel):
+    """Observed signals at capture time; no inferred diagnosis or fabricated defaults."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    rule_version: str | None = Field(default=None, max_length=32, pattern=r"^[A-Za-z0-9_.-]+$")
+    closed_ms: int | None = Field(default=None, ge=0, le=86_400_000)
+    ear: float | None = Field(default=None, ge=0, le=2)
+    ear_baseline: float | None = Field(default=None, gt=0, le=2)
+    blink_count_60s: int | None = Field(default=None, ge=0, le=600)
+    perclos_pct: float | None = Field(default=None, ge=0, le=100)
+    valid_observation_ms: int | None = Field(default=None, ge=0, le=86_400_000)
+    coverage_pct: float | None = Field(default=None, ge=0, le=100)
+    yawns_10min: int | None = Field(default=None, ge=0, le=600)
+    jaw_open_ms: int | None = Field(default=None, ge=0, le=86_400_000)
+    head_delta: float | None = Field(default=None, ge=-180, le=180)
+    yaw_delta: float | None = Field(default=None, ge=-180, le=180)
+    away_ms: int | None = Field(default=None, ge=0, le=86_400_000)
+    missing_ms: int | None = Field(default=None, ge=0, le=86_400_000)
+    speed_limit_kmh: float | None = Field(default=None, gt=0, le=300)
+    sample_latency_ms: int | None = Field(default=None, ge=0, le=600_000)
+
+
 class EventIn(BaseModel):
     uuid: uuid_mod.UUID
     device_serial: str | None = None
@@ -262,6 +285,7 @@ class EventIn(BaseModel):
     speed_source: str | None = None
     value: float | None = None
     context: dict | None = None
+    measurements: EventMeasurements | None = None
     clip: EventClipInfo | None = None
     fw_version: str | None = None
     model_version: str | None = None
@@ -291,6 +315,7 @@ class EventOut(BaseModel):
     is_demo: bool
     driver_id: int | None
     context: dict | None = None  # причина SOS, заметка устройства (BOT-2)
+    measurements: EventMeasurements | None = None
     driver_name: str | None = None
     vehicle_plate: str | None = None
     driver_phone: str | None = None
@@ -316,12 +341,14 @@ class ClipUploadOut(BaseModel):
 # Ремень принимается только с явно указанным источником object_model.
 CameraEventType = Literal[
     "microsleep", "fatigue", "head_nod", "distraction", "camera_sabotage", "phone", "smoking",
-    "seatbelt",
+    "seatbelt", "speeding",
 ]
 
 
 class CameraEventIn(BaseModel):
-    """Событие DMS из браузера телефона (PWA «Камера»): те же правила, что на устройстве."""
+    """Событие DMS из приложения или браузера телефона."""
+
+    model_config = ConfigDict(allow_inf_nan=False)
 
     uuid: uuid_mod.UUID
     type: CameraEventType
@@ -334,7 +361,9 @@ class CameraEventIn(BaseModel):
     speed_kmh: float | None = Field(default=None, ge=0, le=300)
     value: float | None = None
     note: str | None = Field(default=None, max_length=512)
-    detector: Literal["face_rules", "hand_gesture", "object_model"] | None = None
+    detector: Literal["face_rules", "hand_gesture", "object_model", "gps_rules"] | None = None
+    source: Literal["pwa_camera", "android_camera"] = "pwa_camera"
+    measurements: EventMeasurements | None = None
     model_run_id: str | None = Field(default=None, min_length=1, max_length=120)
     model_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
@@ -344,6 +373,23 @@ class CameraEventIn(BaseModel):
             raise ValueError("Ремень требует отдельной модели предметов")
         if self.detector == "object_model" and not (self.model_run_id and self.model_sha256):
             raise ValueError("Укажите версию и контрольную сумму модели предметов")
+        if self.type == "speeding":
+            if not (
+                self.detector == "gps_rules" and self.gps_valid
+                and self.lat is not None and self.lon is not None
+                and self.speed_kmh is not None and self.value is not None and self.value > 0
+                and self.value <= self.speed_kmh
+            ):
+                raise ValueError(
+                    "Превышение требует действительных GPS-данных и величины превышения"
+                )
+            limit = self.measurements.speed_limit_kmh if self.measurements else None
+            if limit is not None and (
+                self.speed_kmh <= limit or abs(self.speed_kmh - limit - self.value) > 0.5
+            ):
+                raise ValueError(
+                    "Величина превышения не совпадает со скоростью и выбранным лимитом"
+                )
         return self
 
 
