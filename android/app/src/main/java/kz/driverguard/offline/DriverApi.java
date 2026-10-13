@@ -18,7 +18,7 @@ final class DriverApi {
     SessionStore.Session login(String rawBase, String phone, String pin) throws Exception {
         String base = SyncPolicy.base(rawBase);
         JSONObject reply = new JSONObject(exchange(base + "/auth/driver-login", "POST", null,
-            new JSONObject().put("phone", phone.trim()).put("pin", pin).toString(), null));
+            new JSONObject().put("phone", LoginInput.phone(phone)).put("pin", LoginInput.pin(pin)).toString(), null));
         int id = reply.optInt("driver_id", 0);
         String token = reply.optString("access_token", "");
         if (id <= 0 || token.isBlank()) throw new IOException("У аккаунта нет профиля водителя. Обратитесь к координатору.");

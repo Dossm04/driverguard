@@ -95,7 +95,10 @@ public final class DriverHubActivity extends ComponentActivity {
             EditText server=Ui.field(this,login,"Адрес сервера HTTPS",getSharedPreferences("hub",MODE_PRIVATE).getString("server","https://api-production-bd8b2.up.railway.app"),false);
             EditText phone=Ui.field(this,login,"Номер телефона +7…","",false);phone.setInputType(android.text.InputType.TYPE_CLASS_PHONE);
             EditText pin=Ui.field(this,login,"PIN водителя","",true);pin.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-            Ui.button(this,login,"Войти",()->{String url=server.getText().toString(),number=phone.getText().toString(),secret=pin.getText().toString();pin.setText("");call(()->{var result=api.login(url,number,secret);getSharedPreferences("hub",MODE_PRIVATE).edit().putString("server",result.base()).apply();try{audits.cacheTemplate(result.owner(),api.getArray("/checklists/items"),api.getArray("/checklists/slots"));}catch(Exception ignored){}tab="Смена";return "Вы вошли. Профиль сохранён для работы без сети.";},false);});
+            TextView loginState=Ui.text(this,login,"Для входа включите интернет. Камера после входа сможет работать без сети.",14,Ui.MUTED);
+            Button signIn=Ui.button(this,login,"Войти",()->{});
+            signIn.setOnClickListener(v->signIn(server,phone,pin,signIn,loginState));
+            Ui.secondary(this,login,"Вернуть адрес облачного сервера",()->server.setText("https://api-production-bd8b2.up.railway.app"));
             Ui.secondary(this,login,"Проверить камеру без входа",()->startActivity(new Intent(this,MainActivity.class)));
             return;
         }
@@ -107,11 +110,13 @@ public final class DriverHubActivity extends ComponentActivity {
         JSONArray training=p.optJSONArray("trainings");LinearLayout learning=Ui.card(this,content);Ui.text(this,learning,"Обучение и рекомендации",21,Ui.TEXT);
         if(training==null||training.length()==0)Ui.text(this,learning,"Назначенных уроков пока нет",14,Ui.MUTED);
         else for(int i=0;i<training.length();i++){JSONObject item=training.optJSONObject(i);if(item==null)continue;Ui.text(this,learning,item.optString("title")+" · "+(item.optString("status").equals("completed")?"пройден":"назначен"),16,Ui.TEXT);}
+        Ui.button(this,learning,"Уроки на телефоне · без интернета",()->startActivity(new Intent(this,LearningActivity.class)));
         Ui.secondary(this,learning,"Открыть кабинет обучения",()->openCabinet("/driver/learn"));
         LinearLayout support=Ui.card(this,content);Ui.text(this,support,"Связь с координатором",21,Ui.TEXT);
         Ui.secondary(this,support,"Отправить SOS",()->new AlertDialog.Builder(this).setTitle("Сообщить координатору?").setMessage("Сигнал появится на сервере при наличии связи. Это не вызов экстренной службы.").setPositiveButton("Отправить",(dialog,n)->call(()->{api.post("/drivers/"+d.getInt("id")+"/sos",new JSONObject().put("reason","Другое").put("comment","SOS из Android DriverGuard").put("gps_valid",false));return "SOS принят сервером";},false)).setNegativeButton("Отмена",null).show());
         Ui.secondary(this,support,"Выйти из аккаунта",()->{if(busy)return;api.logout();message="Вы вышли. Сохранённые записи остаются привязаны к прежнему аккаунту.";render();});
-        Ui.text(this,content,"DriverGuard 0.5 · локальное распознавание. Модель лица встроена в APK; интернет нужен для входа, получения шаблона и отправки данных.",13,Ui.MUTED);
+        Ui.secondary(this,support,"Проверить готовность телефона",this::diagnostics);
+        Ui.text(this,content,"DriverGuard "+BuildConfig.VERSION_NAME+" · модель лица и уроки встроены в APK. Интернет нужен для входа и отправки данных.",13,Ui.MUTED);
     }
     private void openCabinet(String path){var s=session();if(s==null)return;
         String origin=s.base().replaceFirst("/api/v1$","");
@@ -125,7 +130,26 @@ public final class DriverHubActivity extends ComponentActivity {
         Ui.secondary(this,content,"Отправить сохранённые данные",this::sync);
         var s=session();if(s!=null){JSONObject p=profile();JSONArray remote=p.optJSONArray("recent_events");if(remote!=null&&remote.length()>0){LinearLayout server=Ui.card(this,content);Ui.text(this,server,"Последние события сервера",21,Ui.TEXT);for(int i=0;i<Math.min(10,remote.length());i++){JSONObject e=remote.optJSONObject(i);if(e!=null)Ui.text(this,server,eventLabel(e.optString("type"))+"\n"+e.optString("ts",""),14,Ui.MUTED);}}}
     }
-    private String eventLabel(String t){return switch(t){case "microsleep"->"Длительное закрытие глаз";case "fatigue"->"Признаки усталости";case "head_nod"->"Наклон головы";case "sos"->"SOS";default->t;};}
+    private String eventLabel(String t){return EventText.label(t);}
+    private void signIn(EditText server,EditText phone,EditText pin,Button button,TextView state){
+        if(busy)return;
+        final String base,number,secret;
+        try{base=SyncPolicy.base(server.getText().toString());number=LoginInput.phone(phone.getText().toString());secret=LoginInput.pin(pin.getText().toString());}
+        catch(Exception e){state.setText(LoginInput.error(e));state.setTextColor(Ui.RED);notice("Проверьте данные для входа",LoginInput.error(e));return;}
+        busy=true;button.setEnabled(false);button.setText("Подключаемся…");state.setTextColor(Ui.BLUE);state.setText("Проверяем номер и PIN. Обычно это занимает несколько секунд.");
+        network.execute(()->{
+            try{var result=api.login(base,number,secret);getSharedPreferences("hub",MODE_PRIVATE).edit().putString("server",result.base()).apply();
+                handler.post(()->{busy=false;if(closed)return;pin.setText("");tab="Смена";message="Вход выполнен. Ваши новые события будут отправляться в этот аккаунт.";render();Toast.makeText(this,"Вход выполнен",Toast.LENGTH_LONG).show();});
+            }catch(Exception error){String message=LoginInput.error(error);handler.post(()->{busy=false;if(closed)return;button.setEnabled(true);button.setText("Войти");state.setText(message);state.setTextColor(Ui.RED);notice("Не удалось войти",message);});}
+        });
+    }
+    private void diagnostics(){
+        String owner=owner();var profile=profile();JSONObject device=profile.optJSONObject("device");
+        android.media.AudioManager audio=(android.media.AudioManager)getSystemService(AUDIO_SERVICE);
+        boolean camera=androidx.core.content.ContextCompat.checkSelfPermission(this,android.Manifest.permission.CAMERA)==android.content.pm.PackageManager.PERMISSION_GRANTED;
+        String report="Версия: "+BuildConfig.VERSION_NAME+"\nАккаунт: "+(owner==null?"не выполнен вход":"вход сохранён")+"\nКамера: "+(camera?"разрешена":"разрешите при запуске наблюдения")+"\nГромкость: "+audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)+"\nСвободно: "+String.format(java.util.Locale.US,"%.1f ГБ",getFilesDir().getUsableSpace()/1073741824.0)+"\nВ очереди: "+events.pendingCount(owner)+" событий, "+(owner==null?0:audits.countPending(owner))+" осмотров\nПоследняя связь в сохранённом профиле: "+(device==null?"ещё не зарегистрирована":device.optString("last_seen","нет данных"))+"\n\nНажмите «Обновить и отправить данные» при включённом интернете. Сохранённый вход сам по себе не подтверждает связь. Мониторинг требует открытого приложения.";
+        notice("Готовность телефона",report);
+    }
     private void notice(String title,String text){new AlertDialog.Builder(this).setTitle(title).setMessage(text).setPositiveButton("Понятно",null).show();}
     private void call(Callable<String> work,boolean refresh){
         if(busy||closed)return;busy=true;feedback.setText("Выполняем…");
@@ -133,11 +157,12 @@ public final class DriverHubActivity extends ComponentActivity {
             String value=result;handler.post(()->{busy=false;message=value;if(!closed)render();});});
     }
     private void sync(){if(session()==null||busy||closed)return;call(()->{
-        String sent,inspections,connection;
+        String sent,inspections,connection,lessons;
         try{sent=SyncCoordinator.events(this,events);}catch(Exception e){sent="События сохранены · отправим при восстановлении связи";}
         try{inspections=audits.flush(api);}catch(Exception e){inspections="Осмотры сохранены · отправка пока недоступна";}
+        try{lessons=new LearningStore(this).flush(api);}catch(Exception e){lessons="Пройденные уроки сохранены · ждут связи";}
         try{api.refreshProfile();connection="Профиль обновлён";}catch(Exception e){connection="Показан сохранённый профиль";}
-        return connection+"\n"+sent+"\n"+inspections;
+        return connection+"\n"+sent+"\n"+inspections+"\n"+lessons;
     },false);}
     private final Runnable tick=new Runnable(){public void run(){if(!visible||closed)return;sync();handler.postDelayed(this,30_000);}};
     @Override protected void onResume(){super.onResume();visible=true;render();handler.post(tick);}

@@ -58,9 +58,9 @@ final class EventStore extends SQLiteOpenHelper implements EventOutbox {
     }
     String csv() {return csv(null);}
     String csv(String owner) {
-        StringBuilder b=new StringBuilder("time_utc,event,source,uuid,delivery,closed_ms\n");
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT at,kind,source,uuid,state,closed_ms FROM events WHERE "+(owner==null?"owner IS NULL":"owner=?")+" ORDER BY id",owner==null?null:new String[]{owner})) {
-            while(c.moveToNext()){for(int i=0;i<6;i++){if(i>0)b.append(',');b.append(c.isNull(i)?"":c.getString(i));}b.append('\n');}
+        StringBuilder b=new StringBuilder("time_utc,event,source,uuid,delivery,closed_ms,value,metadata_json\n");
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT at,kind,source,uuid,state,closed_ms,value,metadata FROM events WHERE "+(owner==null?"owner IS NULL":"owner=?")+" ORDER BY id",owner==null?null:new String[]{owner})) {
+            while(c.moveToNext()){for(int i=0;i<8;i++){if(i>0)b.append(',');b.append(EventText.csv(c.isNull(i)?"":c.getString(i)));}b.append('\n');}
         } return b.toString();
     }
     String recent() {return recent(null);}
@@ -70,7 +70,7 @@ final class EventStore extends SQLiteOpenHelper implements EventOutbox {
         try(Cursor c=getReadableDatabase().rawQuery("SELECT at,kind,state,closed_ms,value FROM events WHERE "+(owner==null?"owner IS NULL":"owner=?")+" ORDER BY id DESC LIMIT 30",owner==null?null:new String[]{owner})) {
             while(c.moveToNext()) {
                 String at=c.getString(0);try{at=display.format(Instant.parse(at));}catch(Exception ignored){}
-                String kind=c.getString(1),label=switch(kind){case "eyes_closed"->"Длительное закрытие глаз";case "face_missing"->"Лицо вне кадра";case "yawn"->"Открывание рта / возможный зевок";case "fatigue_perclos"->"Частое закрытие глаз · PERCLOS "+Math.round(c.getDouble(4))+"%";case "fatigue_yawning"->"Повторные зевки · "+(int)c.getDouble(4);case "head_nod"->"Длительный наклон головы";default->kind;};
+                String kind=c.getString(1),label=switch(kind){case "eyes_closed"->"Длительное закрытие глаз";case "face_missing"->"Лицо вне кадра";case "yawn"->"Открывание рта / возможный зевок";case "fatigue_perclos"->"Частое закрытие глаз · PERCLOS "+Math.round(c.getDouble(4))+"%";case "fatigue_yawning"->"Повторные зевки · "+(int)c.getDouble(4);case "head_nod"->"Длительный наклон головы";default->EventText.label(kind);};
                 b.append(at).append("\n").append(label);
                 if(kind.equals("eyes_closed"))b.append(String.format(Locale.ENGLISH," · %.1f s",c.getLong(3)/1000.0));
                 b.append(" · ").append(switch(c.getString(2)){case "sent"->"отправлено";case "pending"->"ждёт сети";default->"на телефоне";}).append("\n\n");

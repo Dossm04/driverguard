@@ -12,7 +12,7 @@ final class SyncPolicy {
             String path=u.getPath()==null?"":u.getPath().replaceAll("/+$","");
             if(!path.isEmpty()&&!path.equals("/api/v1"))throw new IllegalArgumentException();
             return scheme+"://"+host+(u.getPort()==-1?"":":"+u.getPort())+"/api/v1";
-        }catch(Exception e){throw new IllegalArgumentException("Use an HTTPS server or local HTTP address without credentials or query parameters.");}
+        }catch(Exception e){throw new IllegalArgumentException("Укажите адрес HTTPS-сервера без пробелов, логина и параметров. Например: https://api-production-bd8b2.up.railway.app");}
     }
     static boolean privateIPv4(String host) {
         if(!host.matches("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}"))return false;

@@ -11,7 +11,7 @@ import java.util.function.Consumer;
 
 /** Main-thread CameraX recorder. Clips are best-effort, with explicit gaps at segment boundaries. */
 final class ClipRecorder {
-    static final long QUOTA=512L*1024*1024, RESERVE=40L*1024*1024;
+    static final long QUOTA=2L*1024*1024*1024, RESERVE=40L*1024*1024;
     static final long AGE=48L*60*60*1000;
     private final Context context;
     private final File directory;
@@ -39,22 +39,22 @@ final class ClipRecorder {
         for(File f:files)if(owned(f))entries.add(new RetentionPolicy.Clip(f.getName(),f.length(),f.lastModified(),active.contains(f.getName())));
         for(String name:RetentionPolicy.removable(entries,System.currentTimeMillis(),AGE,QUOTA-RESERVE)) {
             File f=new File(directory,name);
-            if(owned(f)&&!active.contains(name)&&!f.delete())notice.accept("Could not remove an old clip. Check storage.");
+            if(owned(f)&&!active.contains(name)&&!f.delete())notice.accept("Не удалось удалить старую запись. Проверьте память.");
         }
     }
     void start(Recorder recorder) {stop();segment(recorder,generation);}
     private void segment(Recorder recorder,int token) {
         if(token!=generation)return;
-        if(!directory.isDirectory()&&!directory.mkdirs()){notice.accept("Could not create the recordings folder.");return;}
+        if(!directory.isDirectory()&&!directory.mkdirs()){notice.accept("Не удалось создать папку видеозаписей.");return;}
         prune();
         long used=0;File[] files=directory.listFiles();if(files!=null)for(File f:files)if(owned(f))used+=f.length();
-        if(directory.getUsableSpace()<128L*1024*1024||used>QUOTA-RESERVE){notice.accept("Recording stopped: storage is low. Monitoring continues.");return;}
+        if(directory.getUsableSpace()<512L*1024*1024||used>QUOTA-RESERVE){notice.accept("Запись остановлена: мало памяти. Наблюдение продолжается.");return;}
         File file=new File(directory,"DG-"+System.currentTimeMillis()+"-"+UUID.randomUUID()+".mp4");
         active.add(file.getName());
         try {
             recording=recorder.prepareRecording(context,new FileOutputOptions.Builder(file).setFileSizeLimit(32L*1024*1024).build())
                 .start(ContextCompat.getMainExecutor(context),event->{
-                    if(event instanceof VideoRecordEvent.Start && token==generation)notice.accept("Recording 30-second clips without audio");
+                    if(event instanceof VideoRecordEvent.Start && token==generation)notice.accept("Запись по 30 секунд без звука · до 2 ГБ / 48 часов");
                     if(event instanceof VideoRecordEvent.Finalize done) {
                         active.remove(file.getName());
                         boolean usable=!done.hasError()||done.getError()==VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED;
@@ -63,11 +63,11 @@ final class ClipRecorder {
                         if(token!=generation)return;
                         recording=null;handler.removeCallbacksAndMessages(null);
                         if(usable)segment(recorder,token);
-                        else notice.accept("Recording stopped (code "+done.getError()+"). Monitoring continues.");
+                        else notice.accept("Запись остановлена (код "+done.getError()+"). Наблюдение продолжается.");
                     }
                 });
             handler.postDelayed(()->{if(token==generation&&recording!=null)recording.stop();},30_000);
-        } catch(Exception e){active.remove(file.getName());notice.accept("Recording could not start. Monitoring continues.");}
+        } catch(Exception e){active.remove(file.getName());if(owned(file))file.delete();notice.accept("Запись не запустилась. Наблюдение продолжается.");}
     }
     void stop() {
         generation++;handler.removeCallbacksAndMessages(null);

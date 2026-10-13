@@ -191,9 +191,9 @@ public final class MainActivity extends ComponentActivity {
         RadioGroup route=new RadioGroup(this);route.setOrientation(RadioGroup.HORIZONTAL);advanced.addView(route);
         for(int limit:new int[]{60,90}){RadioButton option=new RadioButton(this);option.setText(limit==60?"Город · 60":"Трасса · 90");option.setTextColor(Ui.TEXT);option.setId(View.generateViewId());route.addView(option);option.setChecked(speedLimitKmh==limit);option.setOnCheckedChangeListener((b,on)->{if(on){speedLimitKmh=limit;getPreferences(MODE_PRIVATE).edit().putInt("speed_limit",limit).apply();}});}
         Ui.text(this,advanced,"Выберите лимит маршрута перед началом. Это лимит профиля, не распознавание дорожных знаков.",13,Ui.MUTED);
-        recordVideo=new CheckBox(this);recordVideo.setText("Записывать видео без звука");recordVideo.setTextColor(Ui.TEXT);advanced.addView(recordVideo);
-        recordVideo.setOnCheckedChangeListener((b,on)->{if(running){stop();status.setText("Настройка сохранена · начните наблюдение снова");}});
-        recordStatus=Ui.text(this,advanced,"Видео хранится на телефоне: до 48 часов / 512 МБ. Старые завершённые записи удаляются при работе приложения.",13,Ui.MUTED);
+        recordVideo=new CheckBox(this);recordVideo.setText("Записывать видео без звука");recordVideo.setTextColor(Ui.TEXT);recordVideo.setChecked(getPreferences(MODE_PRIVATE).getBoolean("record_video",false));advanced.addView(recordVideo);
+        recordVideo.setOnCheckedChangeListener((b,on)->{getPreferences(MODE_PRIVATE).edit().putBoolean("record_video",on).apply();if(running){stop();status.setText("Настройка сохранена · начните наблюдение снова");}});
+        recordStatus=Ui.text(this,advanced,"Видео хранится на телефоне: до 48 часов / 2 ГБ. Старые завершённые записи удаляются при работе приложения; минимум 512 МБ остаётся свободным перед новой записью.",13,Ui.MUTED);
         Ui.secondary(this,advanced,"Записанные видео",this::showClips);
         Ui.text(this,advanced,"Внешняя IP-камера",21,Ui.TEXT);
         host=Ui.field(this,advanced,"IP камеры, например 192.168.1.64","",false);
@@ -409,11 +409,12 @@ public final class MainActivity extends ComponentActivity {
         final long locationTime=SystemClock.elapsedRealtime();final DrivingSample gps=gpsEnabled?location.snapshot(locationTime):DrivingSample.unavailable();
         network.execute(()->{
             String message;
-            try {message=SyncCoordinator.events(this,store);if(monitoring)SyncCoordinator.heartbeat(this,fps,gps,SystemClock.elapsedRealtime());
-                try(AuditStore audits=new AuditStore(this)){audits.flush(new DriverApi(this));}
-            }
+            try {message=SyncCoordinator.events(this,store);}
             catch(SecurityException e){message="Войдите снова · события остаются на телефоне";}
             catch(Exception e){message="Нет связи с сервером · события сохранены и ждут отправки";}
+            if(monitoring)try{SyncCoordinator.heartbeat(this,fps,gps,SystemClock.elapsedRealtime());}catch(Exception ignored){}
+            try(AuditStore audits=new AuditStore(this)){audits.flush(new DriverApi(this));}catch(Exception ignored){}
+            try{new LearningStore(this).flush(new DriverApi(this));}catch(Exception ignored){}
             final String result=message;ui.post(()->{syncing=false;if(!destroyed)syncStatus.setText(result);});
         });
     }

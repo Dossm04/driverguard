@@ -2,12 +2,13 @@ plugins { id 'com.android.application' }
 android {
     namespace 'kz.driverguard.offline'
     compileSdk 35
+    buildFeatures { buildConfig true }
     defaultConfig {
         applicationId 'kz.driverguard.offline'
         minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName '0.6.0-dms-criteria'
+        versionCode 7
+        versionName '0.7.0-driver-ready'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     androidResources { noCompress += ['task', 'onnx'] }
