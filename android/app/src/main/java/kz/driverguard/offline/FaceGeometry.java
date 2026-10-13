@@ -33,6 +33,9 @@ final class FaceGeometry {
     }
 
     private static double eye(float[] x, float[] y, int[] p, int width, int height) {
+        // Extrapolated eye points outside the image cannot support an eye-closure decision.
+        for(int index:p)if(!Float.isFinite(x[index])||!Float.isFinite(y[index])
+            ||x[index]<0||x[index]>1||y[index]<0||y[index]>1)return Double.NaN;
         double horizontal = distance(x, y, p[0], p[3], width, height);
         if (!Double.isFinite(horizontal) || horizontal < 2) return Double.NaN;
         double value = (distance(x, y, p[1], p[5], width, height)

@@ -12,7 +12,7 @@ final class SyncCoordinator {
             if(session==null)return "Локальный режим · войдите для отправки";
             if(store.pendingCount(session.owner())>0){
                 JSONObject capabilities=api.get("/drivers/me/camera-capabilities");
-                if(capabilities.optInt("measurements_version",0)<1||!capabilities.optBoolean("gps_rules",false))
+                if(capabilities.optInt("measurements_version",0)<1||!capabilities.optBoolean("gps_rules",false)||capabilities.optInt("observation_events_version",0)<1)
                     return "Серверу нужно обновление · измерения сохранены на телефоне";
             }
             EventSync sync=new EventSync((address,token,body)->{

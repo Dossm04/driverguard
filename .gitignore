@@ -58,6 +58,7 @@ training/До_исправления*/
 *.pt
 *.onnx
 *.task
+*.tflite
 *.zip
 *.tsbuildinfo
 *.orig

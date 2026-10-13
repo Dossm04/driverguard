@@ -63,6 +63,8 @@ def event_weight(
     modifiers: dict[str, float] | None = None,
 ) -> float:
     """Вес одного события с учётом величины превышения и модификатора скорости."""
+    if type_ in {"yawn", "camera_unavailable"}:
+        return 0.0  # Neutral observations must never deduct driver points.
     m = modifiers or DEFAULT_MODIFIERS
     w = float((weights or DEFAULT_WEIGHTS).get(type_, 0))
     if type_ == "speeding" and value is not None and value > 20:

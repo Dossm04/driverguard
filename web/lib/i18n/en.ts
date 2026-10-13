@@ -1,5 +1,8 @@
 /* Английский словарь: ключ — русская строка из кода (см. lib/i18n/index.ts). */
 export const EN: Record<string, string> = {
+  "Возможный зевок": "Possible yawn",
+  "Лицо или глаза не видны": "Face or eyes not visible",
+
   "Раскрытие глаз (EAR)": "Eye aspect ratio (EAR)",
   "Личная база EAR": "Personal EAR baseline",
   "Моргания за 60 секунд": "Blinks observed in 60 seconds",

@@ -51,6 +51,8 @@ EVENT_LABELS = {
     "head_nod": "Клевок головой",
     "camera_sabotage": "Саботаж камеры",
     "harsh_braking": "Резкое торможение",
+    "yawn": "Возможный зевок",
+    "camera_unavailable": "Лицо или глаза не видны",
     "sos": "SOS",
 }
 

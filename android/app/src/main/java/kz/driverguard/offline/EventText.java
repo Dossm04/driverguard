@@ -6,7 +6,7 @@ final class EventText {
         case "fatigue_yawning"->"Повторные возможные зевки";
         case "yawn"->"Открывание рта / возможный зевок";
         case "head_nod"->"Длительный наклон головы";
-        case "face_missing"->"Лицо вне кадра";
+        case "face_missing","camera_unavailable"->"Лицо или глаза не видны";
         case "distraction_warning","distraction"->"Длительный поворот головы";
         case "distraction_critical"->"Длительный поворот головы · критический сигнал";
         case "speeding"->"Превышение выбранного лимита";

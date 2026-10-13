@@ -17,6 +17,7 @@ import java.io.ByteArrayOutputStream;
 final class CandidateEngine implements AutoCloseable {
     private final OrtEnvironment env=OrtEnvironment.getEnvironment();
     private final OrtSession belt,smoking;
+    private final PhoneObjectEngine phone;
     CandidateEngine(Context context) throws Exception {
         try(OrtSession.SessionOptions options=new OrtSession.SessionOptions()) {
             options.setIntraOpNumThreads(2);options.setInterOpNumThreads(1);
@@ -28,6 +29,7 @@ final class CandidateEngine implements AutoCloseable {
                 temporary=env.createSession(readAll(stream),options);
             } catch(Exception e) {belt.close();throw e;}
             smoking=temporary;
+            try{phone=new PhoneObjectEngine(context);}catch(Exception e){belt.close();smoking.close();throw e;}
         }
     }
     private static byte[] readAll(InputStream input) throws java.io.IOException {
@@ -63,9 +65,10 @@ final class CandidateEngine implements AutoCloseable {
             for(float score:detections[4]) if(Float.isFinite(score))cigarette=Math.max(cigarette,score);
         }
         float off=probabilities[0],on=probabilities[1];
-        String beltLabel=Math.max(off,on)<0.85f?"uncertain":(off>on?"possibly unbelted":"possibly belted");
-        return String.format(Locale.ROOT,"Research estimates\nSeatbelt: %s (%.0f%%)\nCigarette: %s (%.0f%%)\nModel scores do not confirm a violation.",
-            beltLabel,Math.max(off,on)*100,cigarette>=0.6f?"candidate in frame":"not detected",cigarette*100);
+        boolean valid=Float.isFinite(off)&&Float.isFinite(on)&&off>=0&&off<=1&&on>=0&&on<=1;
+        String beltLabel=!valid||Math.max(off,on)<0.85f?"неопределённо":(off>on?"возможно, не пристёгнут":"возможно, пристёгнут");
+        return phone.analyze(image)+String.format(Locale.ROOT,"\nРемень: %s\nСигарета: %s · оценка модели %.2f\nПроверка предметов: выводы не подтверждают нарушение и не отправляются как штрафные события.",
+            beltLabel,cigarette>=0.6f?"возможный предмет в кадре":"не обнаружена",cigarette);
     }
-    @Override public void close() {try{belt.close();smoking.close();}catch(OrtException ignored){}}
+    @Override public void close() {phone.close();try{belt.close();smoking.close();}catch(OrtException ignored){}}
 }

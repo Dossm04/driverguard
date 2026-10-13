@@ -42,4 +42,10 @@ public class FaceGeometryTest {
         FaceGeometry.Measurements result = FaceGeometry.measure(p[0],p[1],p[2],400,300);
         assertTrue(result.valid()); assertEquals(0,result.ear(),.0001f);
     }
+    @Test public void eyeOutsideImageIsUnavailableInsteadOfClosed() {
+        float[][] p=points(400,300);p[0][33]=-.05f;
+        assertFalse(FaceGeometry.measure(p[0],p[1],p[2],400,300).valid());
+        p=points(400,300);p[1][385]=1.02f;
+        assertFalse(FaceGeometry.measure(p[0],p[1],p[2],400,300).valid());
+    }
 }

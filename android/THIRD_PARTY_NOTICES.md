@@ -6,6 +6,9 @@ No field accuracy or fitness for an in-cabin infrared camera is claimed.
 - Google MediaPipe, Face Landmarker: https://github.com/google-ai-edge/mediapipe
   and https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker — Apache-2.0 project;
   model source and exact digest recorded in models.json.
+- Google MediaPipe EfficientDet-Lite0 int8: https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector
+  COCO pretrained object model filtered to the `cell phone` label. Exact downloaded bytes and
+  SHA-256 are recorded in models.json. Generic object presence is not proof of driver phone use.
 - RISEF/yolov11s-seatbelt: https://huggingface.co/RISEF/yolov11s-seatbelt,
   revision 0187cdb3cd65b14ce450ba3777e59b951dc1620f — AGPL-3.0 per model card and metadata.
 - MeetCool/yolov8n-smoking-detection: https://huggingface.co/MeetCool/yolov8n-smoking-detection,

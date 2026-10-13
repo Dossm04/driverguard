@@ -11,9 +11,12 @@ public class EventPayloadTest {
         assertEquals(3,yawns.getDouble("value"),0);assertTrue(yawns.getString("note").contains("mouth-opening"));
         assertEquals(0,perclos.getDouble("confidence"),0);
     }
-    @Test public void singleYawnAndMissingFaceNeverBecomeConfirmedViolation(){
-        assertFalse(EventPayload.uploadable("yawn"));assertFalse(EventPayload.uploadable("face_missing"));
-        assertThrows(IllegalArgumentException.class,()->EventPayload.of(event("yawn",1)));
+    @Test public void singleYawnAndMissingFaceUploadAsNeutralObservations()throws Exception{
+        assertTrue(EventPayload.uploadable("yawn"));assertTrue(EventPayload.uploadable("face_missing"));
+        assertEquals("info",EventPayload.of(event("yawn",1)).getString("severity"));
+        assertEquals("camera_unavailable",EventPayload.of(event("face_missing",3)).getString("type"));
+        assertEquals(0,EventPayload.of(event("face_missing",3)).getDouble("confidence"),0);
+        assertFalse(EventPayload.uploadable("phone"));assertFalse(EventPayload.uploadable("seatbelt"));
     }
     @Test public void headAndEyeObservationsMapToSupportedTypes()throws Exception{
         assertEquals("head_nod",EventPayload.of(event("head_nod",2)).getString("type"));

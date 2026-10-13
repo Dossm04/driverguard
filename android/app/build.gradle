@@ -7,11 +7,11 @@ android {
         applicationId 'kz.driverguard.offline'
         minSdk 26
         targetSdk 35
-        versionCode 7
-        versionName '0.7.0-driver-ready'
+        versionCode 8
+        versionName '0.8.0-observation-alerts'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
-    androidResources { noCompress += ['task', 'onnx'] }
+    androidResources { noCompress += ['task', 'onnx', 'tflite'] }
     buildTypes { release { minifyEnabled false } }
     splits {
         abi { enable true; reset(); include 'arm64-v8a', 'x86_64'; universalApk false }

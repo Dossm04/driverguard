@@ -87,6 +87,7 @@ public final class MainActivity extends ComponentActivity {
     private long sampledFrame,lastCapture;
     private long lastPhoneSample;
     private String source="phone";
+    private long lastResearchAt=-1;
     private String exportText="";
     private final ActivityResultLauncher<String> cameraPermission=registerForActivityResult(
         new ActivityResultContracts.RequestPermission(),granted->{if(granted)startPhone();else status.setText("Разрешите камеру в настройках приложения.");});
@@ -201,12 +202,12 @@ public final class MainActivity extends ComponentActivity {
         password=Ui.field(this,advanced,"Пароль камеры","",true);
         startRtsp=Ui.button(this,advanced,"Подключить Hikvision",this::startNetwork);startRtsp.setEnabled(false);
         Ui.text(this,advanced,"Нужна общая локальная сеть и поток H.264 /102. Интернет для анализа не требуется.",13,Ui.MUTED);
-        experimental=new CheckBox(this);experimental.setText("Исследовательские модели ремня и сигареты");experimental.setTextColor(Ui.TEXT);advanced.addView(experimental);
+        experimental=new CheckBox(this);experimental.setText("Проверка предметов: телефон, ремень, сигарета");experimental.setTextColor(Ui.TEXT);advanced.addView(experimental);
         objects=Ui.text(this,advanced,"Выключены. Эти оценки ещё не проверены на вашем телефоне и не отправляются как нарушения.",13,Ui.MUTED);
         experimental.setOnCheckedChangeListener((b,on)->{researchEnabled=on;objects.setText(on?"Покажите лицо и верхнюю часть тела. Дополнительный анализ может снизить скорость.":"Исследовательские модели выключены.");});
         Ui.secondary(this,advanced,"Экспорт журнала CSV",()->inference.execute(()->{exportText=store.csv(activeOwner);ui.post(()->{if(!destroyed)export.launch("DriverGuard-events.csv");});}));
         Ui.secondary(this,advanced,"Отправить очередь сейчас",this::syncNow);
-        Ui.text(this,advanced,"Параметры DriverGuard\nГлаза: 1,5 с; EAR ниже 55% вашей базы.\nМоргания: замеченные эпизоды 60–500 мс, окно 60 с; короткие моргания камера может пропускать.\nPERCLOS: ≥20% за 60 с, минимум 15 с валидного наблюдения и 80% покрытия.\nВозможный зевок: рот открыт 1,2 с; предупреждение при 3 эпизодах за 10 мин.\nНаклон: изменение глубины точек головы >0,13 в течение 2 с.\nОтвлечение: поворот от базы >0,35 на 8/15 с при GPS >20 км/ч.\nСкорость: превышение выбранного лимита более 10 с.\nЛица нет: локальный сигнал после 3 с; событие после 5 мин при GPS >5 км/ч.\nЭто визуальные признаки для проверки, не диагноз и не доказательство нарушения.",13,Ui.MUTED);
+        Ui.text(this,advanced,"Параметры DriverGuard\nГлаза: 1,5 с; EAR ниже 55% вашей базы.\nМоргания: замеченные эпизоды 60–500 мс, окно 60 с; короткие моргания камера может пропускать.\nPERCLOS: ≥20% за 60 с, минимум 15 с валидного наблюдения и 80% покрытия.\nВозможный зевок: рот открыт 1,2 с — короткий сигнал и запись в панели. При 3 эпизодах за 10 мин — признак усталости.\nНаклон: изменение глубины точек головы >0,13 в течение 2 с.\nОтвлечение: поворот от базы >0,35 на 8/15 с при GPS >20 км/ч.\nСкорость: превышение выбранного лимита более 10 с.\nЛицо или глаза не видны: через 3 с сигнал, затем повтор каждые 5 с; отдельная запись без штрафа. После 5 мин при GPS >5 км/ч — событие для проверки камеры.\nЭто визуальные признаки для проверки, не диагноз и не доказательство нарушения.",13,Ui.MUTED);
     }
     private void updateSoundLabel(){
         long left=Math.max(0,mutedUntil-SystemClock.elapsedRealtime());
@@ -345,20 +346,20 @@ public final class MainActivity extends ComponentActivity {
         ui.post(()->{
             if(destroyed||token!=generation||!running)return;
             alerts.onFrame(frame,result);observedFrames++;
-            String label=!result.faceVisible()?"Лицо не видно":result.closureAlarm()?"Откройте глаза · остановитесь":result.distractionCritical()?"Верните внимание на дорогу":result.fatigueActive()?"Признаки усталости · нужен отдых":result.headDownMs()>=2000?"Поднимите голову":result.eyesClosed()?"Глаза закрыты":"Наблюдение активно";
+            String label=!result.faceVisible()?"Лицо или глаза не видны · поправьте камеру":result.closureAlarm()?"Откройте глаза · остановитесь":result.distractionCritical()?"Верните внимание на дорогу":result.fatigueActive()?"Признаки усталости · нужен отдых":result.headDownMs()>=2000?"Поднимите голову":result.eyesClosed()?"Глаза закрыты":"Наблюдение активно";
             status.setText(label);status.setTextColor(result.closureAlarm()?Ui.RED:result.fatigueActive()||!result.faceVisible()?Ui.AMBER:Ui.GREEN);
             eyeMetric.setText(!result.faceVisible()?"ГЛАЗА    нет наблюдения":result.eyesClosed()?String.format(java.util.Locale.US,"ГЛАЗА    закрыты %.1f с",result.closedMs()/1000.0):"ГЛАЗА    открыты");
             eyeMetric.setTextColor(result.closureAlarm()?Ui.RED:Ui.TEXT);
             mouthMetric.setText("ВОЗМОЖНЫЕ ЗЕВКИ    "+result.yawnCount()+" / 10 мин"+(result.jawOpenMs()>0?" · рот открыт":""));
             fatigueMetric.setText(result.perclosReady()?"PERCLOS    "+Math.round(result.perclos()*100)+"% · закрытие глаз за окно 60 с":"PERCLOS    наблюдений "+result.validMs()/1000+" с / минимум 15 с");
             eyeCalibrationMetric.setText("ЗАМЕЧЕНО МОРГАНИЙ    "+result.blinkCount()+" / 60 с\n"+(result.eyeCalibrated()?"EAR    "+metric(result.ear())+" · ваша база "+metric(result.earBaseline()):"EAR    смотрите прямо с открытыми глазами"));
-            poseMetric.setText(result.faceVisible()?"Наклон Δ "+metric(result.headDelta())+" · поворот Δ "+metric(result.yawDelta())+String.format(java.util.Locale.US,"\nГолова отвёрнута %.1f с",result.awayMs()/1000.0):"Лицо вне кадра · "+result.missingMs()/1000+" с");
+            poseMetric.setText(result.faceVisible()?"Наклон Δ "+metric(result.headDelta())+" · поворот Δ "+metric(result.yawDelta())+String.format(java.util.Locale.US,"\nГолова отвёрнута %.1f с",result.awayMs()/1000.0):"Нет наблюдения глаз · "+result.missingMs()/1000+" с");
             gpsMetric.setText(Double.isFinite(speed)?String.format(java.util.Locale.US,"GPS    %.0f км/ч · лимит %d · точность ±%.0f м",speed,limit,gps.accuracyMeters()):gpsEnabled?"GPS    ждём точный свежий сигнал · скоростные события выключены":"GPS    выключен · скоростные события не создаются");
             double fps=observedFrames*1000.0/Math.max(1,SystemClock.elapsedRealtime()-monitorStarted);
             details.setText(String.format(java.util.Locale.US,"На телефоне · %d мс/кадр · %.1f кадр/с",latency,fps));
             if(persisted>0){sessionEventCount+=persisted;savedEvents.setText("Сохранено за сеанс: "+sessionEventCount);}
         });
-        if(extra){String candidateText;
+        if(extra&&(lastResearchAt<0||frame-lastResearchAt>=1500)){lastResearchAt=frame;String candidateText;
             try{if(candidates==null)candidates=new CandidateEngine(getApplicationContext());candidateText=!result.faceVisible()?"Лицо не видно · дополнительные оценки недоступны":candidates.analyze(image);}
             catch(Exception optionalFailure){candidateText="Дополнительные модели недоступны · анализ глаз продолжается";}
             final String display=candidateText;
@@ -366,7 +367,7 @@ public final class MainActivity extends ComponentActivity {
         }
     }
     private String measurementContext(DmsRules.Result r,DrivingSample gps,long frame,int limit,long latency)throws org.json.JSONException{
-        org.json.JSONObject m=new org.json.JSONObject().put("rule_version","android-0.6").put("closed_ms",r.closedMs())
+        org.json.JSONObject m=new org.json.JSONObject().put("rule_version","android-0.8").put("closed_ms",r.closedMs())
             .put("blink_count_60s",r.blinkCount()).put("perclos_pct",Math.max(0,Math.min(100,r.perclos()*100))).put("valid_observation_ms",r.validMs())
             .put("coverage_pct",Math.max(0,Math.min(100,r.validCoverage()*100))).put("yawns_10min",r.yawnCount()).put("jaw_open_ms",r.jawOpenMs())
             .put("away_ms",r.awayMs()).put("missing_ms",r.missingMs()).put("speed_limit_kmh",limit).put("sample_latency_ms",latency);

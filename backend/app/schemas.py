@@ -16,6 +16,8 @@ EventType = Literal[
     "fatigue",
     "head_nod",
     "camera_sabotage",
+    "yawn",
+    "camera_unavailable",
     "harsh_braking",
     "sos",
 ]
@@ -164,7 +166,7 @@ class VehicleOut(BaseModel):
 
 
 class DeviceIn(BaseModel):
-    serial: str = Field(min_length=1, max_length=40)   # колонка String(40) в БД
+    serial: str = Field(min_length=1, max_length=40)  # колонка String(40) в БД
     secret: str = Field(min_length=1, max_length=128)
     vehicle_id: int | None = None
 
@@ -340,8 +342,17 @@ class ClipUploadOut(BaseModel):
 
 # Ремень принимается только с явно указанным источником object_model.
 CameraEventType = Literal[
-    "microsleep", "fatigue", "head_nod", "distraction", "camera_sabotage", "phone", "smoking",
-    "seatbelt", "speeding",
+    "microsleep",
+    "fatigue",
+    "head_nod",
+    "distraction",
+    "camera_sabotage",
+    "phone",
+    "smoking",
+    "seatbelt",
+    "speeding",
+    "yawn",
+    "camera_unavailable",
 ]
 
 
@@ -369,15 +380,24 @@ class CameraEventIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_detector(self):
+        if self.type in {"yawn", "camera_unavailable"}:
+            if self.detector != "face_rules":
+                raise ValueError("Наблюдение требует face_rules")
+            self.severity = "info"
+            self.confidence = 0.0
         if self.type == "seatbelt" and self.detector != "object_model":
             raise ValueError("Ремень требует отдельной модели предметов")
         if self.detector == "object_model" and not (self.model_run_id and self.model_sha256):
             raise ValueError("Укажите версию и контрольную сумму модели предметов")
         if self.type == "speeding":
             if not (
-                self.detector == "gps_rules" and self.gps_valid
-                and self.lat is not None and self.lon is not None
-                and self.speed_kmh is not None and self.value is not None and self.value > 0
+                self.detector == "gps_rules"
+                and self.gps_valid
+                and self.lat is not None
+                and self.lon is not None
+                and self.speed_kmh is not None
+                and self.value is not None
+                and self.value > 0
                 and self.value <= self.speed_kmh
             ):
                 raise ValueError(

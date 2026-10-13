@@ -130,7 +130,7 @@ def _web_device(db: Session, driver: Driver, now: datetime) -> Device | None:
 def my_camera_capabilities(db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Native outbox checks this before uploading observations to an older server."""
     _own_driver(db, user)
-    return {"measurements_version": 1, "gps_rules": True}
+    return {"measurements_version": 1, "gps_rules": True, "observation_events_version": 1}
 
 
 @router.post("/me/camera-events")

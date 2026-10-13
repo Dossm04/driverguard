@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app import ws
 from app.models import Driver, Event
 from app.routers.events import ws_manager
+from app.scoring import event_weight
 
 
 def driver_headers(client):
@@ -20,36 +21,86 @@ def driver_headers(client):
 
 def native_event(**changes):
     return {
-        "uuid": str(uuid.uuid4()), "type": "microsleep", "severity": "critical",
-        "confidence": 0, "ts": (datetime.now(UTC) - timedelta(hours=2)).isoformat(),
-        "gps_valid": False, "value": 1.7, "source": "android_camera",
-        "detector": "face_rules", "note": "Проверка передачи измерений",
+        "uuid": str(uuid.uuid4()),
+        "type": "microsleep",
+        "severity": "critical",
+        "confidence": 0,
+        "ts": (datetime.now(UTC) - timedelta(hours=2)).isoformat(),
+        "gps_valid": False,
+        "value": 1.7,
+        "source": "android_camera",
+        "detector": "face_rules",
+        "note": "Проверка передачи измерений",
         "measurements": {
-            "rule_version": "dms-0.6", "closed_ms": 1700, "ear": 0.12,
-            "ear_baseline": 0.3, "blink_count_60s": 7, "perclos_pct": 21.5,
-            "valid_observation_ms": 54_000, "coverage_pct": 90, "yawns_10min": 3,
-            "jaw_open_ms": 0, "head_delta": 0.053, "yaw_delta": -0.082,
-            "away_ms": 0, "missing_ms": 0, "sample_latency_ms": 57,
-        }, **changes,
+            "rule_version": "dms-0.6",
+            "closed_ms": 1700,
+            "ear": 0.12,
+            "ear_baseline": 0.3,
+            "blink_count_60s": 7,
+            "perclos_pct": 21.5,
+            "valid_observation_ms": 54_000,
+            "coverage_pct": 90,
+            "yawns_10min": 3,
+            "jaw_open_ms": 0,
+            "head_delta": 0.053,
+            "yaw_delta": -0.082,
+            "away_ms": 0,
+            "missing_ms": 0,
+            "sample_latency_ms": 57,
+        },
+        **changes,
     }
 
 
+def test_neutral_observations_preserve_measurements_without_driver_penalty(client, seeded):
+    auth = driver_headers(client)
+    before = client.get("/api/v1/drivers/me", headers=auth).json()["score"]["value"]
+    batch = [
+        native_event(type=kind, severity="critical", confidence=1)
+        for kind in ("yawn", "camera_unavailable")
+    ]
+    result = client.post("/api/v1/drivers/me/camera-events", json=batch, headers=auth)
+    assert result.status_code == 200, result.text
+    assert result.json() == {"accepted": 2, "duplicates": 0}
+    assert client.post("/api/v1/drivers/me/camera-events", json=batch, headers=auth).json() == {
+        "accepted": 0,
+        "duplicates": 2,
+    }
+    for item in batch:
+        stored = seeded.get(Event, uuid.UUID(item["uuid"]))
+        assert stored.severity == "info" and stored.confidence == 0
+        assert stored.measurements == item["measurements"]
+        assert event_weight(item["type"], weights={item["type"]: 99}) == 0
+    after = client.get("/api/v1/drivers/me", headers=auth).json()["score"]["value"]
+    assert after == before
+
+
 def test_capabilities_require_driver_login_and_advertise_preserved_measurements(
-    client, seeded, headers,
+    client,
+    seeded,
+    headers,
 ):
     response = client.get("/api/v1/drivers/me/camera-capabilities")
     assert response.status_code == 401
     response = client.get("/api/v1/drivers/me/camera-capabilities", headers=headers)
     assert response.status_code == 404
     response = client.get(
-        "/api/v1/drivers/me/camera-capabilities", headers=driver_headers(client),
+        "/api/v1/drivers/me/camera-capabilities",
+        headers=driver_headers(client),
     )
     assert response.status_code == 200
-    assert response.json() == {"measurements_version": 1, "gps_rules": True}
+    assert response.json() == {
+        "measurements_version": 1,
+        "gps_rules": True,
+        "observation_events_version": 1,
+    }
 
 
 def test_native_readings_persist_across_retry_list_profile_and_live_event(
-    client, seeded, headers, monkeypatch,
+    client,
+    seeded,
+    headers,
+    monkeypatch,
 ):
     messages = []
     monkeypatch.setattr(ws_manager, "broadcast_threadsafe", messages.append)
@@ -57,7 +108,9 @@ def test_native_readings_persist_across_retry_list_profile_and_live_event(
     event = native_event()
     old_event = native_event(measurements=None, source="pwa_camera", detector=None)
     response = client.post(
-        "/api/v1/drivers/me/camera-events", json=[event, old_event], headers=auth,
+        "/api/v1/drivers/me/camera-events",
+        json=[event, old_event],
+        headers=auth,
     )
     assert response.status_code == 200, response.text
     assert response.json() == {"accepted": 2, "duplicates": 0}
@@ -72,7 +125,9 @@ def test_native_readings_persist_across_retry_list_profile_and_live_event(
     # Retrying an offline UUID cannot replace its original observation snapshot.
     modified_retry = {**event, "measurements": {"closed_ms": 9999}}
     retry = client.post(
-        "/api/v1/drivers/me/camera-events", json=[modified_retry], headers=auth,
+        "/api/v1/drivers/me/camera-events",
+        json=[modified_retry],
+        headers=auth,
     )
     assert retry.json() == {"accepted": 0, "duplicates": 1}
     seeded.refresh(stored)
@@ -94,8 +149,14 @@ def test_native_readings_persist_across_retry_list_profile_and_live_event(
 def test_native_speeding_retains_actual_gps_and_rejects_false_fix(client, seeded, headers):
     auth = driver_headers(client)
     event = native_event(
-        type="speeding", severity="warning", detector="gps_rules", gps_valid=True,
-        lat=51.1, lon=71.4, speed_kmh=72.5, value=12.5,
+        type="speeding",
+        severity="warning",
+        detector="gps_rules",
+        gps_valid=True,
+        lat=51.1,
+        lon=71.4,
+        speed_kmh=72.5,
+        value=12.5,
         measurements={"rule_version": "dms-0.6", "speed_limit_kmh": 60},
     )
     response = client.post("/api/v1/drivers/me/camera-events", json=[event], headers=auth)
@@ -116,13 +177,15 @@ def test_invalid_location_does_not_move_vehicle_from_latest_valid_fix(client, se
     ws.set_live_position(driver.vehicle.id, 51.1, 71.4, 12)
     response = client.post(
         "/api/v1/drivers/me/camera-events",
-        json=[native_event(lat=0, lon=0, gps_valid=False)], headers=auth,
+        json=[native_event(lat=0, lon=0, gps_valid=False)],
+        headers=auth,
     )
     assert response.status_code == 200, response.text
     before = ws.live_position(driver.vehicle.id)
     response = client.post(
         "/api/v1/drivers/me/camera-heartbeat",
-        json={"lat": 1, "lon": 1, "gps_valid": False}, headers=auth,
+        json={"lat": 1, "lon": 1, "gps_valid": False},
+        headers=auth,
     )
     assert response.status_code == 200, response.text
     assert ws.live_position(driver.vehicle.id) == before

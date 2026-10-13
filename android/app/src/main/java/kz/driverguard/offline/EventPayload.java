@@ -2,10 +2,12 @@ package kz.driverguard.offline;
 import org.json.JSONObject;
 
 final class EventPayload {
-    static boolean uploadable(String kind){return kind.equals("eyes_closed")||kind.equals("fatigue_perclos")||kind.equals("fatigue_yawning")||kind.equals("head_nod")||kind.equals("distraction_warning")||kind.equals("distraction_critical")||kind.equals("speeding")||kind.equals("camera_sabotage");}
+    static boolean uploadable(String kind){return kind.equals("yawn")||kind.equals("face_missing")||kind.equals("eyes_closed")||kind.equals("fatigue_perclos")||kind.equals("fatigue_yawning")||kind.equals("head_nod")||kind.equals("distraction_warning")||kind.equals("distraction_critical")||kind.equals("speeding")||kind.equals("camera_sabotage");}
     static JSONObject of(EventOutbox.Pending p)throws Exception{
         String type,severity,note;
         switch(p.kind()){
+            case "yawn":type="yawn";severity="info";note="Sustained mouth opening / possible yawn; not proof of fatigue";break;
+            case "face_missing":type="camera_unavailable";severity="info";note="Face or eye measurement unavailable for at least 3 seconds; adjust camera; no driver penalty";break;
             case "eyes_closed":type="microsleep";severity="critical";note="Prolonged eye closure: "+p.closedMs()+" ms";break;
             case "fatigue_perclos":type="fatigue";severity="warning";note="Time-weighted PERCLOS: "+p.value()+" percent of valid observed time; 60 s sliding window, minimum 15 s valid observations";break;
             case "fatigue_yawning":type="fatigue";severity="warning";note="Repeated mouth-opening observations: "+(int)p.value()+" in 10 minutes; possible yawning";break;

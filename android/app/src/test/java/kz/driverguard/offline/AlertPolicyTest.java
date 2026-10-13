@@ -59,15 +59,15 @@ public class AlertPolicyTest {
         assertFalse(policy.poll(1000,true,false).active());
         policy.onFrame(-1,null);assertFalse(policy.poll(1600,true,false).active());
     }
-    @Test public void fatigueWarningIsOneShortPulseAndNotEachOrdinaryYawn() {
+    @Test public void eachNewYawnSoundsOnceAndRepeatedYawnWarningDoesNotDoublePulse() {
         DmsRules rules=new DmsRules();AlertPolicy policy=new AlertPolicy();int warnings=0;
         for(int t=0;t<=9000;t+=200) {
             policy.onFrame(t,rules.update(t,true,0,0,t%3000<=1400?1:0));
             AlertPolicy.Decision result=policy.poll(t,true,false);
             assertFalse(result.active());assertFalse(result.playPulse());
-            if(result.warningPulse()){assertEquals(7200,t);warnings++;}
+            if(result.warningPulse()){assertTrue(t==1200||t==4200||t==7200);warnings++;}
         }
-        assertEquals(1,warnings);
+        assertEquals(3,warnings);
     }
     @Test public void perclosWarningHasCooldownWithoutRepeatedSoundEveryFrame() {
         DmsRules rules=new DmsRules();AlertPolicy policy=new AlertPolicy();int warnings=0;
@@ -92,13 +92,31 @@ public class AlertPolicyTest {
         policy.onFrame(20000,rules.update(20000,true,0,0,0));
         assertFalse(policy.poll(20000,true,false).warningPulse());
     }
-    @Test public void cameraMissingProducesOneWarningEvenWithoutFace() {
+    @Test public void cameraMissingRepeatsWithoutDuplicateJournalEvents() {
         DmsRules rules=new DmsRules(); AlertPolicy policy=new AlertPolicy(); int warnings=0;
-        for(int t=0;t<=6000;t+=100) {
-            policy.onFrame(t,rules.update(t,false,0,0));
-            if(policy.poll(t,true,false).warningPulse()){warnings++;assertEquals(3000,t);}
+        int events=0;
+        for(int t=0;t<=14000;t+=100) {
+            var result=rules.update(t,false,0,0);if(result.events().contains("face_missing"))events++;
+            policy.onFrame(t,result);
+            if(policy.poll(t,true,false).warningPulse()){warnings++;assertTrue(t==3000||t==8000||t==13000);}
         }
-        assertEquals(1,warnings);
+        assertEquals(3,warnings);assertEquals(1,events);
+        policy.onFrame(14100,rules.update(14100,true,0,0));
+        assertFalse(policy.poll(14100,true,false).warningPulse());
+    }
+    @Test public void visibilityReminderHonorsMuteAndStaleFrames() {
+        DmsRules rules=new DmsRules();AlertPolicy policy=new AlertPolicy();
+        for(int t=0;t<=3000;t+=100)policy.onFrame(t,rules.update(t,false,0,0));
+        assertFalse(policy.poll(3000,true,true).warningPulse());
+        assertTrue(policy.poll(3100,true,false).warningPulse());
+        assertFalse(policy.poll(9000,true,false).warningPulse());
+        assertFalse(policy.poll(10000,false,false).warningPulse());
+    }
+    @Test public void warningIsNotLostWhenAnotherInferenceArrivesBeforeSoundTimer() {
+        DmsRules rules=new DmsRules();AlertPolicy policy=new AlertPolicy();
+        for(int t=0;t<=1400;t+=100)policy.onFrame(t,rules.update(t,true,0,0,1));
+        assertTrue(policy.poll(1400,true,false).warningPulse());
+        assertFalse(policy.poll(1500,true,false).warningPulse());
     }
     @Test public void criticalMovingDistractionRepeatsButUnknownSpeedStopsIt() {
         DmsRules rules=new DmsRules(); AlertPolicy policy=new AlertPolicy(); int pulses=0;

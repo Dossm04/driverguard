@@ -25,6 +25,8 @@ EVENT_TYPES = (
     "fatigue",
     "head_nod",
     "camera_sabotage",
+    "yawn",
+    "camera_unavailable",
     "harsh_braking",
     "sos",
 )
