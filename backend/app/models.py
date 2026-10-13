@@ -27,6 +27,8 @@ EVENT_TYPES = (
     "camera_sabotage",
     "yawn",
     "camera_unavailable",
+    "rest_started",
+    "rest_ended",
     "harsh_braking",
     "sos",
 )

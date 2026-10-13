@@ -2,10 +2,12 @@ package kz.driverguard.offline;
 import org.json.JSONObject;
 
 final class EventPayload {
-    static boolean uploadable(String kind){return kind.equals("yawn")||kind.equals("face_missing")||kind.equals("eyes_closed")||kind.equals("fatigue_perclos")||kind.equals("fatigue_yawning")||kind.equals("head_nod")||kind.equals("distraction_warning")||kind.equals("distraction_critical")||kind.equals("speeding")||kind.equals("camera_sabotage");}
+    static boolean uploadable(String kind){return kind.equals("rest_started")||kind.equals("rest_ended")||kind.equals("yawn")||kind.equals("face_missing")||kind.equals("eyes_closed")||kind.equals("fatigue_perclos")||kind.equals("fatigue_yawning")||kind.equals("head_nod")||kind.equals("distraction_warning")||kind.equals("distraction_critical")||kind.equals("speeding")||kind.equals("camera_sabotage");}
     static JSONObject of(EventOutbox.Pending p)throws Exception{
         String type,severity,note;
         switch(p.kind()){
+            case "rest_started":type="rest_started";severity="info";note="Driver manually started rest; monitoring paused";break;
+            case "rest_ended":type="rest_ended";severity="info";note="Driver manually ended rest; duration seconds="+p.value()+"; not proof of fitness to drive";break;
             case "yawn":type="yawn";severity="info";note="Sustained mouth opening / possible yawn; not proof of fatigue";break;
             case "face_missing":type="camera_unavailable";severity="info";note="Face or eye measurement unavailable for at least 3 seconds; adjust camera; no driver penalty";break;
             case "eyes_closed":type="microsleep";severity="critical";note="Prolonged eye closure: "+p.closedMs()+" ms";break;
@@ -19,8 +21,8 @@ final class EventPayload {
             default:throw new IllegalArgumentException("This observation is local only");
         }
         JSONObject out=new JSONObject().put("uuid",p.uuid()).put("type",type).put("severity",severity).put("ts",p.at())
-            .put("value",p.value()).put("confidence",0.0).put("gps_valid",false).put("source","android_camera").put("detector",type.equals("speeding")?"gps_rules":"face_rules")
-            .put("note","Android DriverGuard: "+note+"; source="+p.source()+"; confidence uncalibrated (0 placeholder); visual observation, not a confirmed diagnosis");
+            .put("value",p.value()).put("confidence",0.0).put("gps_valid",false).put("source","android_camera").put("detector",type.startsWith("rest_")?"driver_action":type.equals("speeding")?"gps_rules":"face_rules")
+            .put("note","Android DriverGuard: "+note+"; source="+p.source()+(type.startsWith("rest_")?"":"; confidence uncalibrated (0 placeholder); visual observation, not a confirmed diagnosis"));
         // Eye blendshape activation is a measurement, not calibrated event confidence.
         if(p.metadata()!=null){
             JSONObject meta=new JSONObject(p.metadata());

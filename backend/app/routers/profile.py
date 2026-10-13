@@ -25,7 +25,7 @@ from app.models import (
 )
 from app.routers.directories import ONLINE_WINDOW
 from app.routers.events import _trip_at, event_out, ws_manager
-from app.schemas import CameraEventIn, CameraHeartbeatIn, SosIn, TrainingAssignIn
+from app.schemas import CameraEventIn, CameraHeartbeatIn, DriverFeedbackIn, SosIn, TrainingAssignIn
 from app.security import get_current_user, phone_for, require_roles
 
 router = APIRouter(prefix="/drivers", tags=["профиль водителя"])
@@ -130,7 +130,55 @@ def _web_device(db: Session, driver: Driver, now: datetime) -> Device | None:
 def my_camera_capabilities(db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Native outbox checks this before uploading observations to an older server."""
     _own_driver(db, user)
-    return {"measurements_version": 1, "gps_rules": True, "observation_events_version": 1}
+    return {
+        "measurements_version": 1,
+        "gps_rules": True,
+        "observation_events_version": 1,
+        "driver_care_version": 1,
+    }
+
+
+@router.put("/me/camera-events/{event_id}/feedback")
+def camera_feedback(
+    event_id: uuid_mod.UUID,
+    body: DriverFeedbackIn,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    driver = _own_driver(db, user)
+    event = db.scalar(
+        select(Event).where(Event.uuid == event_id, Event.driver_id == driver.id).with_for_update()
+    )
+    if event is None:
+        raise HTTPException(404, "Событие не найдено")
+    context = dict(event.context or {})
+    previous = context.get("driver_feedback")
+    request_id = str(body.request_id)
+    if previous:
+        if previous.get("request_id") != request_id or previous.get("comment") != body.comment:
+            raise HTTPException(409, "Комментарий уже сохранён")
+        return {"ok": True, "request_id": request_id}
+    now = datetime.now(UTC)
+    context["driver_feedback"] = {
+        "request_id": request_id,
+        "comment": body.comment,
+        "ts": min(body.ts, now).isoformat(),
+        "received_at": now.isoformat(),
+        "status": "requested_review",
+    }
+    event.context = context
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="driver_event_feedback",
+            entity=f"event:{event_id}",
+            before=None,
+            after=context["driver_feedback"],
+            ts=now,
+        )
+    )
+    db.commit()
+    return {"ok": True, "request_id": request_id}
 
 
 @router.post("/me/camera-events")
@@ -166,13 +214,15 @@ def my_camera_events(
                     item.measurements.model_dump(exclude_none=True) if item.measurements else None
                 ),
                 "context": {
-                    "source": item.source, "note": item.note,
+                    "source": item.source,
+                    "note": item.note,
                     "detector": item.detector,
                     "model_run_id": item.model_run_id,
                     "model_sha256": item.model_sha256,
                     "confidence_status": (
                         "uncalibrated"
-                        if item.detector in {"face_rules", "hand_gesture", "gps_rules"} else None
+                        if item.detector in {"face_rules", "hand_gesture", "gps_rules"}
+                        else None
                     ),
                 },
                 "status": "new",
@@ -229,8 +279,10 @@ def my_camera_heartbeat(
             )
     db.commit()
     if (
-        driver.vehicle is not None and body.gps_valid
-        and body.lat is not None and body.lon is not None
+        driver.vehicle is not None
+        and body.gps_valid
+        and body.lat is not None
+        and body.lon is not None
     ):
         ws.set_live_position(driver.vehicle.id, body.lat, body.lon, body.speed_kmh)
     return {

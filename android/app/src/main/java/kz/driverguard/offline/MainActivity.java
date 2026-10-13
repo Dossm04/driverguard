@@ -55,6 +55,8 @@ public final class MainActivity extends ComponentActivity {
     private final ExecutorService network=Executors.newSingleThreadExecutor();
     private final AlertPolicy alerts=new AlertPolicy();
     private long mutedUntil, warningToneUntil;
+    private AlertVoice voice;private boolean voiceEnabled=true;private String warningVoice="fatigue",criticalVoice="eyes";private long nextRestLabel;
+    private TextView qualityText;private Button restButton;
     private TextView eyeMetric,mouthMetric,fatigueMetric,soundState,eyeCalibrationMetric,poseMetric,gpsMetric;
     private LocationTracker location;
     private CheckBox gpsToggle;
@@ -109,7 +111,7 @@ public final class MainActivity extends ComponentActivity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        store=new EventStore(this);
+        store=new EventStore(this);voice=new AlertVoice(this);voiceEnabled=getPreferences(MODE_PRIVATE).getBoolean("voice",true);
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         try {tone=new ToneGenerator(AudioManager.STREAM_MUSIC,85);}catch(RuntimeException unavailable){tone=null;}
         var session=new DriverApi(this).session();
@@ -146,6 +148,7 @@ public final class MainActivity extends ComponentActivity {
         Ui.secondary(this,box,"‹  Моя смена",this::finish);
         LinearLayout hero=Ui.card(this,box);
         status=Ui.text(this,hero,"Подготовка модели…",25,Ui.TEXT);
+        qualityText=Ui.text(this,hero,"Проверка освещения и положения лица",14,Ui.MUTED);
         details=Ui.text(this,hero,"Поставьте телефон устойчиво: лицо целиком в кадре, без бликов.",14,Ui.MUTED);
         videoBox=new FrameLayout(this);videoBox.setBackground(Ui.shape(this,Color.BLACK,18));videoBox.setClipToOutline(true);
         hero.addView(videoBox,new LinearLayout.LayoutParams(-1,dp(300)));
@@ -160,13 +163,15 @@ public final class MainActivity extends ComponentActivity {
         poseMetric=Ui.text(this,metrics,"ПОЛОЖЕНИЕ ГОЛОВЫ    смотрите прямо 3 секунды",14,Ui.MUTED);
         gpsMetric=Ui.text(this,metrics,"GPS    выключен · скоростные события не создаются",14,Ui.MUTED);
         startCamera=Ui.button(this,box,"Начать наблюдение",this::startPhone);startCamera.setEnabled(false);
+        restButton=Ui.button(this,box,"Отдых · приостановить наблюдение",()->RestUi.toggle(this,store,activeOwner,this::stop,()->{status.setText(store.rest(activeOwner)==null?"Отдых завершён · начните наблюдение":"Отдых · камера и запись выключены");syncNow();}));
         Ui.secondary(this,box,"Завершить наблюдение",()->{stop();status.setText("Наблюдение завершено");});
         LinearLayout sound=Ui.card(this,box);
         soundState=Ui.text(this,sound,"Звук включён",18,Ui.GREEN);
         muteButton=Ui.secondary(this,sound,"Без звука на 30 секунд",()->{
             if(SystemClock.elapsedRealtime()<mutedUntil)mutedUntil=0;else mutedUntil=SystemClock.elapsedRealtime()+30_000;
-            if(tone!=null)tone.stopTone();updateSoundLabel();
+            if(tone!=null)tone.stopTone();voice.stop();updateSoundLabel();
         });
+        CheckBox speech=new CheckBox(this);speech.setText("Голосовые подсказки без интернета");speech.setTextColor(Ui.TEXT);speech.setChecked(voiceEnabled);sound.addView(speech);speech.setOnCheckedChangeListener((b,on)->{voiceEnabled=on;getPreferences(MODE_PRIVATE).edit().putBoolean("voice",on).apply();if(!on)voice.stop();});
         Ui.secondary(this,sound,"Проверить громкость",this::testSound);
         savedEvents=Ui.text(this,box,"Сохранено за сеанс: 0",14,Ui.MUTED);
         syncStatus=Ui.text(this,box,activeOwner==null?"Локальный режим · войдите в аккаунт для отправки":"События привязаны к вашему аккаунту",14,Ui.MUTED);
@@ -220,13 +225,15 @@ public final class MainActivity extends ComponentActivity {
     private final Runnable soundTick=new Runnable(){public void run(){
         if(destroyed||!foreground)return;
         long now=SystemClock.elapsedRealtime();var decision=alerts.poll(now,running,now<mutedUntil);
+        if(now>=nextRestLabel){restButton.setText(RestUi.label(MainActivity.this,store,activeOwner));nextRestLabel=now+1000;}
+        voice.clearCritical(decision.active());if((!running&&!voice.testPlaying())||now<mutedUntil)voice.stop();
         if(!decision.active()&&now>=warningToneUntil&&tone!=null)tone.stopTone();
-        if(decision.playPulse())playAlert(600);
-        else if(decision.warningPulse()){playAlert(400);warningToneUntil=now+450;}
+        if(decision.playPulse()) {if(voiceEnabled)voice.speak(criticalVoice,now);if(!voice.playing())playAlert(600);}
+        else if(decision.warningPulse()){if(voiceEnabled)voice.speak(warningVoice,now);if(!voice.playing()){playAlert(400);warningToneUntil=now+450;}}
         updateSoundLabel();ui.postDelayed(this,100);
     }};
     private void startPhone() {
-        if(!ready||authBusy)return;
+        if(!ready||authBusy)return;if(store.rest(activeOwner)!=null){status.setText("Сначала завершите отдых кнопкой ниже");return;}
         if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED) {cameraPermission.launch(Manifest.permission.CAMERA);return;}
         stop();source="phone";running=true;int token=generation;resetSession();
         if(gpsEnabled)location.start();
@@ -257,7 +264,7 @@ public final class MainActivity extends ComponentActivity {
     }
     @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
     private void startNetwork() {
-        if(!ready||authBusy)return;
+        if(!ready||authBusy)return;if(store.rest(activeOwner)!=null){status.setText("Сначала завершите отдых кнопкой ниже");return;}
         String address=host.getText().toString().trim();
         if(!address.matches("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}")){status.setText(R.string.enter_camera_ip);return;}
         for(String part:address.split("\\.")) if(Integer.parseInt(part)>255){status.setText(R.string.invalid_ip);return;}
@@ -286,7 +293,7 @@ public final class MainActivity extends ComponentActivity {
         if(!running||destroyed)return;
         long now=SystemClock.elapsedRealtime(),frame=newFrame.get();
         long recent=source.equals("phone")?Math.max(lastCapture,frame):lastCapture;
-        if(now-recent>2000) {status.setText("Нет новых кадров · наблюдение приостановлено");objects.setText("Нет актуальных наблюдений");}
+        if(now-recent>2000) {status.setText("Нет новых кадров · наблюдение приостановлено");objects.setText("Нет актуальных наблюдений");if(voiceEnabled&&now>=mutedUntil)voice.speak("quality",now);}
         if(source.equals("phone")){ui.postDelayed(this,200);return;}
         if(!busy&&frame>sampledFrame&&now-frame<1000) {
             Bitmap raw=networkVideo.getBitmap();
@@ -339,13 +346,19 @@ public final class MainActivity extends ComponentActivity {
         int saved=0;
         for(String event:result.events()){
             double value=switch(event){case "fatigue_perclos"->result.perclos()*100;case "fatigue_yawning","yawn"->result.yawnCount();case "head_nod"->result.headDownMs()/1000.0;case "distraction_warning","distraction_critical"->result.movingAwayMs()/1000.0;case "speeding"->speed-limit;case "camera_sabotage"->result.movingMissingMs()/1000.0;case "face_missing"->result.missingMs()/1000.0;default->result.closedMs()/1000.0;};
-            try{store.add(event,src,owner,capturedAt,result.closedMs(),result.confidence(),value,measurementContext(result,gps,frame,limit,latency));saved++;}
+            try{String eventId=store.add(event,src,owner,capturedAt,result.closedMs(),result.confidence(),value,measurementContext(result,gps,frame,limit,latency));saved++;ui.post(()->{if(!destroyed&&token==generation&&running&&src.equals("phone"))clipRecorder.markEvent(eventId,owner,capturedAt);});}
             catch(Exception failure){ui.post(()->{if(!destroyed){savedEvents.setText("Событие не сохранено · проверьте свободное место");syncStatus.setText("Не удалось записать событие на телефон");}});}
         }
-        final int persisted=saved;
+        final int persisted=saved;final String quality=face.quality;
         ui.post(()->{
             if(destroyed||token!=generation||!running)return;
             alerts.onFrame(frame,result);observedFrames++;
+            criticalVoice=result.closureAlarm()?"eyes":"attention";
+            qualityText.setText(quality);
+            if(!result.faceVisible())warningVoice="camera";
+            else if(result.events().contains("yawn"))warningVoice="yawn";
+            else if(result.fatigueActive())warningVoice="fatigue";
+            else if(result.events().contains("head_nod")||result.events().contains("distraction_warning"))warningVoice="attention";
             String label=!result.faceVisible()?"Лицо или глаза не видны · поправьте камеру":result.closureAlarm()?"Откройте глаза · остановитесь":result.distractionCritical()?"Верните внимание на дорогу":result.fatigueActive()?"Признаки усталости · нужен отдых":result.headDownMs()>=2000?"Поднимите голову":result.eyesClosed()?"Глаза закрыты":"Наблюдение активно";
             status.setText(label);status.setTextColor(result.closureAlarm()?Ui.RED:result.fatigueActive()||!result.faceVisible()?Ui.AMBER:Ui.GREEN);
             eyeMetric.setText(!result.faceVisible()?"ГЛАЗА    нет наблюдения":result.eyesClosed()?String.format(java.util.Locale.US,"ГЛАЗА    закрыты %.1f с",result.closedMs()/1000.0):"ГЛАЗА    открыты");
@@ -367,7 +380,7 @@ public final class MainActivity extends ComponentActivity {
         }
     }
     private String measurementContext(DmsRules.Result r,DrivingSample gps,long frame,int limit,long latency)throws org.json.JSONException{
-        org.json.JSONObject m=new org.json.JSONObject().put("rule_version","android-0.8").put("closed_ms",r.closedMs())
+        org.json.JSONObject m=new org.json.JSONObject().put("rule_version","android-0.9").put("closed_ms",r.closedMs())
             .put("blink_count_60s",r.blinkCount()).put("perclos_pct",Math.max(0,Math.min(100,r.perclos()*100))).put("valid_observation_ms",r.validMs())
             .put("coverage_pct",Math.max(0,Math.min(100,r.validCoverage()*100))).put("yawns_10min",r.yawnCount()).put("jaw_open_ms",r.jawOpenMs())
             .put("away_ms",r.awayMs()).put("missing_ms",r.missingMs()).put("speed_limit_kmh",limit).put("sample_latency_ms",latency);
@@ -383,11 +396,11 @@ public final class MainActivity extends ComponentActivity {
     private void testSound(){
         AudioManager audio=(AudioManager)getSystemService(AUDIO_SERVICE);
         String message=tone==null?"Звук недоступен. Перезапустите приложение.":audio.getStreamVolume(AudioManager.STREAM_MUSIC)==0?"Громкость мультимедиа — ноль. Увеличьте её кнопками телефона.":"Это проверка звука. Для проверки распознавания запустите камеру.";
-        warningToneUntil=SystemClock.elapsedRealtime()+550;playAlert(500);Toast.makeText(this,message,Toast.LENGTH_LONG).show();
+        warningToneUntil=SystemClock.elapsedRealtime()+550;if(voiceEnabled)voice.speak("test",SystemClock.elapsedRealtime());else playAlert(500);Toast.makeText(this,message,Toast.LENGTH_LONG).show();
     }
-    private void showJournal(){inference.execute(()->{String log=store.recent(activeOwner);ui.post(()->{if(!destroyed)new AlertDialog.Builder(this).setTitle("Журнал на телефоне").setMessage(log).setPositiveButton("Закрыть",null).show();});});}
+    private void showJournal(){JournalUi.show(this,store,activeOwner);}
     private void stop() {
-        generation++;running=false;alerts.reset();warningToneUntil=0;if(tone!=null)tone.stopTone();ui.removeCallbacks(tick);newFrame.set(0);sampledFrame=0;
+        generation++;running=false;if(voice!=null)voice.stop();alerts.reset();warningToneUntil=0;if(tone!=null)tone.stopTone();ui.removeCallbacks(tick);newFrame.set(0);sampledFrame=0;
         if(clipRecorder!=null)clipRecorder.stop();
         if(location!=null)location.stop();
         if(cameras!=null)cameras.unbindAll();
@@ -416,13 +429,13 @@ public final class MainActivity extends ComponentActivity {
             if(monitoring)try{SyncCoordinator.heartbeat(this,fps,gps,SystemClock.elapsedRealtime());}catch(Exception ignored){}
             try(AuditStore audits=new AuditStore(this)){audits.flush(new DriverApi(this));}catch(Exception ignored){}
             try{new LearningStore(this).flush(new DriverApi(this));}catch(Exception ignored){}
-            final String result=message;ui.post(()->{syncing=false;if(!destroyed)syncStatus.setText(result);});
+            final String result=message;ui.post(()->{syncing=false;if(!destroyed)syncStatus.setText(result+"\n"+SyncStatus.summary(this,activeOwner,store));});
         });
     }
     private final Runnable syncTick=new Runnable(){public void run(){if(!foreground||destroyed)return;syncNow();ui.postDelayed(this,15_000);}};
     @Override protected void onResume(){super.onResume();foreground=true;ui.post(syncTick);ui.post(soundTick);}
     @Override protected void onPause(){super.onPause();foreground=false;ui.removeCallbacks(syncTick);ui.removeCallbacks(soundTick);stop();if(status!=null)status.setText("Наблюдение остановлено · нажмите «Начать наблюдение»");}
-    @Override protected void onDestroy(){stop();destroyed=true;if(tone!=null)tone.release();
+    @Override protected void onDestroy(){stop();destroyed=true;if(tone!=null)tone.release();if(voice!=null)voice.close();
         inference.execute(()->{if(face!=null)face.close();if(candidates!=null)candidates.close();});inference.shutdown();
         network.execute(()->{try{if(inference.awaitTermination(30,java.util.concurrent.TimeUnit.SECONDS))store.close();}catch(InterruptedException e){Thread.currentThread().interrupt();}});
         network.shutdown();super.onDestroy();}

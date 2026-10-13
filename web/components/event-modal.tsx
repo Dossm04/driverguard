@@ -64,6 +64,7 @@ export function EventModal({
   const Icon = EVENT_ICONS[event.type] ?? User;
   const pill = STATUS_PILLS[event.status];
   const readings = measurementRows(event.measurements);
+  const feedback = event.context?.driver_feedback as { comment?: string; ts?: string } | undefined;
   const uncalibrated = event.context?.confidence_status === "uncalibrated"
     || ["face_rules", "hand_gesture", "gps_rules"].includes(String(event.context?.detector));
 
@@ -156,12 +157,12 @@ export function EventModal({
               )}
             </dd>
           </div>
-          <div className="flex justify-between gap-3">
+          {event.context?.detector !== "driver_action" && <div className="flex justify-between gap-3">
             <dt className="text-mut">{t("Оценка уверенности")}</dt>
             <dd className="text-right font-semibold">
               {uncalibrated ? t("Не калибрована") : `${Math.round(event.confidence * 100)}%`}
             </dd>
-          </div>
+          </div>}
           {["pwa_camera", "android_camera"].includes(String(event.context?.source)) && (
             <div className="flex justify-between gap-3">
               <dt className="text-mut">{t("Источник")}</dt>
@@ -193,6 +194,16 @@ export function EventModal({
               {t("Это наблюдения устройства, а не подтверждение сна или медицинский диагноз.")}
             </p>
           </section>
+        )}
+        {typeof feedback?.comment === "string" && (
+          <section className="mt-4 rounded-btn border border-line bg-page p-4">
+            <h4 className="font-semibold">{t("Водитель просит проверить событие")}</h4>
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm">{feedback.comment}</p>
+            <p className="mt-2 text-xs text-mut">{t("Комментарий не меняет исходные измерения и решение координатора.")}</p>
+          </section>
+        )}
+        {event.type === "rest_ended" && typeof event.value === "number" && (
+          <p className="mt-3 text-sm">{t("Продолжительность отдыха")}: {Math.floor(event.value / 60)} {t("мин")}</p>
         )}
         {typeof event.context?.note === "string" && event.context.note && (
           <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-mut">

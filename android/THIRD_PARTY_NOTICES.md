@@ -24,3 +24,7 @@ No field accuracy or fitness for an in-cabin infrared camera is claimed.
 
 These notes do not relicense third-party artifacts. Preserve notices, license texts and
 corresponding source obligations when distributing a combined application.
+
+The seven Russian warning WAV files in app/src/main/res/raw were synthesized locally
+using the Windows Microsoft Irina Desktop voice from DriverGuard-authored warning text.
+They are packaged in the APK; Android does not call a speech service or download a voice.

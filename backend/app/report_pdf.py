@@ -52,6 +52,8 @@ EVENT_LABELS = {
     "camera_sabotage": "Саботаж камеры",
     "harsh_braking": "Резкое торможение",
     "yawn": "Возможный зевок",
+    "rest_started": "Отдых начат",
+    "rest_ended": "Отдых завершён",
     "camera_unavailable": "Лицо или глаза не видны",
     "sos": "SOS",
 }

@@ -93,6 +93,7 @@ def test_capabilities_require_driver_login_and_advertise_preserved_measurements(
         "measurements_version": 1,
         "gps_rules": True,
         "observation_events_version": 1,
+        "driver_care_version": 1,
     }
 
 

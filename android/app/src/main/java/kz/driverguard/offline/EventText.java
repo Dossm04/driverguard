@@ -1,6 +1,6 @@
 package kz.driverguard.offline;
 final class EventText {
-    static String label(String kind){return switch(kind){
+    static String label(String kind){return switch(kind){case "rest_started"->"Отдых начат";case "rest_ended"->"Отдых завершён";
         case "eyes_closed","microsleep"->"Длительное закрытие глаз";
         case "fatigue","fatigue_perclos"->"Частое закрытие глаз · PERCLOS";
         case "fatigue_yawning"->"Повторные возможные зевки";

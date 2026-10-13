@@ -1,5 +1,11 @@
 /* Английский словарь: ключ — русская строка из кода (см. lib/i18n/index.ts). */
 export const EN: Record<string, string> = {
+  "Отдых начат": "Rest started",
+  "Отдых завершён": "Rest ended",
+  "Водитель просит проверить событие": "Driver requested an event review",
+  "Комментарий не меняет исходные измерения и решение координатора.": "This comment does not change the original readings or the coordinator decision.",
+  "Продолжительность отдыха": "Rest duration",
+
   "Возможный зевок": "Possible yawn",
   "Лицо или глаза не видны": "Face or eyes not visible",
 

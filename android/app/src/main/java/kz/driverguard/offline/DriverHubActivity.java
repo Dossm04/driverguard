@@ -57,6 +57,8 @@ public final class DriverHubActivity extends ComponentActivity {
         Ui.text(this,audit,check.has("id")?"Последний осмотр №"+check.optInt("id")+" · "+verdict(check):"Фотографии автомобиля и проверка перед рейсом",14,Ui.MUTED);
         Ui.button(this,audit,"Заполнить аудит",this::openAudit);
         LinearLayout shift=Ui.card(this,content);Ui.text(this,shift,"02  Рейс и отдых",21,Ui.TEXT);
+        Ui.button(this,shift,RestUi.label(this,events,owner()),()->RestUi.toggle(this,events,owner(),()->{},this::render));
+        Ui.text(this,shift,"Локальный отдых доступен без рейса и сети. Для возобновления камеры завершите отдых.",13,Ui.MUTED);
         JSONObject trip=p.optJSONObject("active_trip");
         if(trip==null){Ui.text(this,shift,"Активного рейса нет",15,Ui.MUTED);Ui.secondary(this,shift,"Начать рейс",this::startTrip);}
         else{
@@ -70,6 +72,7 @@ public final class DriverHubActivity extends ComponentActivity {
         }
         LinearLayout delivery=Ui.card(this,content);Ui.text(this,delivery,"03  Данные под контролем",21,Ui.TEXT);
         Ui.text(this,delivery,session==null?"Наблюдения сохраняются локально. После входа новые события будут связаны с водителем.":"Ожидают отправки: "+events.pendingCount(session.owner())+" событий · "+audits.countPending(session.owner())+" осмотров",14,Ui.MUTED);
+        Ui.text(this,delivery,SyncStatus.summary(this,owner(),events),14,Ui.MUTED);
         Ui.secondary(this,delivery,"Обновить и отправить данные",this::sync);
         Ui.text(this,delivery,"При открытом приложении очередь отправляется автоматически после восстановления связи. Видео остаётся на телефоне.",13,Ui.MUTED);
     }
@@ -127,6 +130,7 @@ public final class DriverHubActivity extends ComponentActivity {
     private void journal(){
         LinearLayout card=Ui.card(this,content);Ui.text(this,card,"События на телефоне",22,Ui.TEXT);
         Ui.text(this,card,events.recent(owner()),15,Ui.TEXT);
+        Ui.secondary(this,card,"Открыть событие · клип или комментарий",()->JournalUi.show(this,events,owner()));
         Ui.secondary(this,content,"Отправить сохранённые данные",this::sync);
         var s=session();if(s!=null){JSONObject p=profile();JSONArray remote=p.optJSONArray("recent_events");if(remote!=null&&remote.length()>0){LinearLayout server=Ui.card(this,content);Ui.text(this,server,"Последние события сервера",21,Ui.TEXT);for(int i=0;i<Math.min(10,remote.length());i++){JSONObject e=remote.optJSONObject(i);if(e!=null)Ui.text(this,server,eventLabel(e.optString("type"))+"\n"+e.optString("ts",""),14,Ui.MUTED);}}}
     }

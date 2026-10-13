@@ -55,6 +55,8 @@ training/До_исправления*/
 **/runs/
 **/prepared*/
 **/raw/
+!android/app/src/main/res/raw/
+!android/app/src/main/res/raw/*.wav
 *.pt
 *.onnx
 *.task

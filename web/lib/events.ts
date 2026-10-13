@@ -38,6 +38,8 @@ export const EVENT_LABELS: Record<string, string> = perLang(() => ({
   camera_sabotage: t("Саботаж камеры"),
   harsh_braking: t("Резкое торможение"),
   yawn: t("Возможный зевок"),
+  rest_started: t("Отдых начат"),
+  rest_ended: t("Отдых завершён"),
   camera_unavailable: t("Лицо или глаза не видны"),
   sos: "SOS",
 }));
@@ -55,6 +57,8 @@ export const EVENT_ICONS: Record<string, LucideIcon> = {
   harsh_braking: OctagonAlert,
   yawn: BatteryLow,
   camera_unavailable: CameraOff,
+  rest_started: BatteryLow,
+  rest_ended: BatteryLow,
   sos: Siren,
 };
 

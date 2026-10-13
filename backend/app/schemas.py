@@ -18,6 +18,8 @@ EventType = Literal[
     "camera_sabotage",
     "yawn",
     "camera_unavailable",
+    "rest_started",
+    "rest_ended",
     "harsh_braking",
     "sos",
 ]
@@ -353,6 +355,8 @@ CameraEventType = Literal[
     "speeding",
     "yawn",
     "camera_unavailable",
+    "rest_started",
+    "rest_ended",
 ]
 
 
@@ -372,7 +376,9 @@ class CameraEventIn(BaseModel):
     speed_kmh: float | None = Field(default=None, ge=0, le=300)
     value: float | None = None
     note: str | None = Field(default=None, max_length=512)
-    detector: Literal["face_rules", "hand_gesture", "object_model", "gps_rules"] | None = None
+    detector: (
+        Literal["face_rules", "hand_gesture", "object_model", "gps_rules", "driver_action"] | None
+    ) = None
     source: Literal["pwa_camera", "android_camera"] = "pwa_camera"
     measurements: EventMeasurements | None = None
     model_run_id: str | None = Field(default=None, min_length=1, max_length=120)
@@ -380,6 +386,13 @@ class CameraEventIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_detector(self):
+        if self.type in {"rest_started", "rest_ended"}:
+            if self.detector != "driver_action" or self.source != "android_camera":
+                raise ValueError("Rest requires an explicit Android driver action")
+            if self.value is None or not 0 <= self.value <= 604800:
+                raise ValueError("Invalid rest duration")
+            self.severity = "info"
+            self.confidence = 0.0
         if self.type in {"yawn", "camera_unavailable"}:
             if self.detector != "face_rules":
                 raise ValueError("Наблюдение требует face_rules")
@@ -411,6 +424,20 @@ class CameraEventIn(BaseModel):
                     "Величина превышения не совпадает со скоростью и выбранным лимитом"
                 )
         return self
+
+
+class DriverFeedbackIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    request_id: uuid_mod.UUID
+    comment: str = Field(min_length=1, max_length=500)
+    ts: datetime
+
+    @field_validator("ts")
+    @classmethod
+    def aware_timestamp(cls, value):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Timestamp must include timezone")
+        return value
 
 
 class CameraHeartbeatIn(BaseModel):

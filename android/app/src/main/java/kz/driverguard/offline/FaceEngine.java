@@ -12,6 +12,7 @@ import com.google.mediapipe.tasks.components.containers.Category;
 final class FaceEngine implements AutoCloseable {
     private final FaceLandmarker model;
     private long lastTime=-1;
+    String quality="Проверяем изображение";
     final DmsRules rules = new DmsRules();
     FaceEngine(Context context) {
         model=FaceLandmarker.createFromOptions(context, FaceLandmarker.FaceLandmarkerOptions.builder()
@@ -25,6 +26,8 @@ final class FaceEngine implements AutoCloseable {
     }
     DmsRules.Result analyze(Bitmap bitmap,long now,double verifiedSpeedKmh,int speedLimitKmh) {
         long timestamp=Math.max(now,lastTime+1); lastTime=timestamp;
+        Bitmap sample=Bitmap.createScaledBitmap(bitmap,32,24,true);int[] pixels=new int[32*24];sample.getPixels(pixels,0,32,0,0,32,24);if(sample!=bitmap)sample.recycle();
+        FrameQuality.Reading q=FrameQuality.inspect(pixels);quality=q.message();
         MPImage image=new BitmapImageBuilder(bitmap).build();
         try {
             var r=model.detectForVideo(image,timestamp);
@@ -44,6 +47,9 @@ final class FaceEngine implements AutoCloseable {
                     var p=points.get(i); x[i]=p.x(); y[i]=p.y(); z[i]=p.z();
                 }
                 geometry=FaceGeometry.measure(x,y,z,bitmap.getWidth(),bitmap.getHeight());
+                float minX=1,maxX=0;for(float value:x){minX=Math.min(minX,value);maxX=Math.max(maxX,value);}
+                if(maxX-minX<.12f){quality="Лицо слишком далеко · приблизьте телефон";left=right=Float.NaN;}
+                if(q.tooDark())left=right=Float.NaN;
                 // Geometry checks validate the measurement; mouth opening is not proof of a yawn.
                 if(!geometry.mouthValid())jaw=Float.NaN;
             }
