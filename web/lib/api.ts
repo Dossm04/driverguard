@@ -234,7 +234,7 @@ export interface SummaryOut {
   critical_24h: { value: number };
   avg_score: { value: number; prev: number; delta: number; target: number; zone: string };
   km_week: { value: number; delta_pct: number };
-  uptime: { value: number; active: number; total: number };
+  uptime: { value: number | null; active: number; total: number };
   badges: { new_events: number };
 }
 

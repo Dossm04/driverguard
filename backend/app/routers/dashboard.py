@@ -120,7 +120,7 @@ def summary(period: Period = "today", db: Session = Depends(get_db)):
         else 0
     )
     expected = HEARTBEAT_EXPECTED_PER_DEVICE * len(real_ids)
-    uptime = round(100 * beats / expected, 1) if expected else 100.0
+    uptime = min(100.0, round(100 * beats / expected, 1)) if expected else None
 
     new_events = (
         db.scalar(select(func.count()).select_from(Event).where(Event.status == "new")) or 0

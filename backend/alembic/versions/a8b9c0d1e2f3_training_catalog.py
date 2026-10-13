@@ -20,8 +20,8 @@ def upgrade():
     for title in TITLES:
         connection.execute(
             sa.text(
-                "INSERT INTO trainings (title, duration_s) SELECT :title, 30 "
-                "WHERE NOT EXISTS (SELECT 1 FROM trainings WHERE title=:title)"
+                "INSERT INTO trainings (title, duration_s) SELECT CAST(:title AS VARCHAR), 30 "
+                "WHERE NOT EXISTS (SELECT 1 FROM trainings WHERE title=CAST(:title AS VARCHAR))"
             ),
             {"title": title},
         )

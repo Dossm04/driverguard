@@ -884,4 +884,8 @@ export const EN: Record<string, string> = {
   "Настройте навигатор до выезда. Громкая связь тоже может отвлекать.": "Set up navigation before departure. Hands-free calls can also be distracting.",
   "Для важного звонка или сообщения остановитесь в разрешённом безопасном месте и припаркуйтесь.": "For an important call or message, pull over and park in a safe, permitted location.",
   "Настройка телефона и сообщения отвлекают от дороги. Оставьте их до безопасной остановки.": "Phone settings and messages distract from the road. Leave them until you are safely parked.",
+  "Ожидаем подключения": "Waiting for a device",
+  "Нет измерений доступности": "No uptime measurements",
+  "Критические события не поступали. Проверьте связь с устройствами.": "No critical events received. Check device connectivity.",
+  "По доступным данным водителей в красной зоне нет.": "No drivers are in the red zone according to available data.",
 };

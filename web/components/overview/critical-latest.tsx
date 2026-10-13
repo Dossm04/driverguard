@@ -52,7 +52,7 @@ export function CriticalLatest() {
         <EmptyState
           icon={CheckCircle2}
           title={t("Критических событий нет")}
-          description={t("Отличная работа парка — ни одного критического события.")}
+          description={t("Критические события не поступали. Проверьте связь с устройствами.")}
         />
       ) : (
         <ul>

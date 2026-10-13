@@ -5,8 +5,18 @@
 """
 
 import pytest
+from sqlalchemy import update
 
+from app.models import Device
 from app.seed import _event_uuid
+
+
+def test_uptime_without_measured_devices_is_unknown(client, headers, seeded):
+    seeded.execute(update(Device).values(fw_version="web"))
+    seeded.commit()
+    response = client.get("/api/v1/dashboard/summary", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["uptime"]["value"] is None
 
 
 def test_summary_matches_figma(client, headers):

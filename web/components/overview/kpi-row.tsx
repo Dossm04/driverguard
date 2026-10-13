@@ -42,6 +42,7 @@ export function KpiRow({ period }: { period: Period }) {
   }
 
   const offline = s.vehicles.total - s.vehicles.online;
+  const waiting = s.vehicles.total === 0;
   // Зону считает backend (одни пороги для Обзора, Лидерборда, Отчётов и карты)
   const scorePill =
     s.avg_score.zone === "danger"
@@ -62,9 +63,9 @@ export function KpiRow({ period }: { period: Period }) {
             <span className="text-lg text-mut">/{s.vehicles.total}</span>
           </>
         }
-        sub={offline > 0 ? t("{0} офлайн", offline) : t("все на связи")}
+        sub={waiting ? t("Ожидаем подключения") : offline > 0 ? t("{0} офлайн", offline) : t("все на связи")}
         pill={
-          offline > 0
+          waiting ? undefined : offline > 0
             ? { label: t("Внимание"), tone: "warn" }
             : { label: t("Норма"), tone: "ok" }
         }
@@ -84,7 +85,7 @@ export function KpiRow({ period }: { period: Period }) {
         }
         sub={`${EVENT_SUBS[period]} ${s.events.prev}`}
         pill={
-          s.events.value > 0
+          waiting ? undefined : s.events.value > 0
             ? { label: t("Внимание"), tone: "warn" }
             : { label: t("Норма"), tone: "ok" }
         }
@@ -96,7 +97,7 @@ export function KpiRow({ period }: { period: Period }) {
         value={s.critical_24h.value}
         sub={s.critical_24h.value > 0 ? t("требуют реакции") : t("нет за сутки")}
         pill={
-          s.critical_24h.value > 0
+          waiting ? undefined : s.critical_24h.value > 0
             ? { label: t("Критично"), tone: "danger" }
             : { label: t("Норма"), tone: "ok" }
         }
@@ -105,17 +106,17 @@ export function KpiRow({ period }: { period: Period }) {
         title={t("Средний Score парка")}
         icon={Activity}
         iconTone="ok"
-        value={s.avg_score.value}
+        value={waiting ? "—" : s.avg_score.value}
         trend={
-          s.avg_score.delta !== 0
+          !waiting && s.avg_score.delta !== 0
             ? {
                 value: `${s.avg_score.delta > 0 ? "+" : "−"}${Math.abs(s.avg_score.delta)}`,
                 tone: s.avg_score.delta > 0 ? "ok" : "danger",
               }
             : undefined
         }
-        sub={t("цель: ≥{0}", s.avg_score.target)}
-        pill={scorePill}
+        sub={waiting ? t("Ожидаем подключения") : t("цель: ≥{0}", s.avg_score.target)}
+        pill={waiting ? undefined : scorePill}
       />
       <KpiCard
         title={t("Пробег за неделю")}
@@ -131,16 +132,16 @@ export function KpiRow({ period }: { period: Period }) {
             : undefined
         }
         sub={t("км")}
-        pill={{ label: t("Норма"), tone: "ok" }}
+        pill={waiting ? undefined : { label: t("Норма"), tone: "ok" }}
       />
       <KpiCard
         title={t("Аптайм устройств")}
         icon={Wifi}
         iconTone="ok"
-        value={`${s.uptime.value}%`}
-        sub={t("{0} из {1} активны", s.uptime.active, s.uptime.total)}
+        value={waiting || s.uptime.value === null ? "—" : `${s.uptime.value}%`}
+        sub={waiting || s.uptime.value === null ? t("Нет измерений доступности") : t("{0} из {1} активны", s.uptime.active, s.uptime.total)}
         pill={
-          s.uptime.value >= 95
+          waiting || s.uptime.value === null ? undefined : s.uptime.value >= 95
             ? { label: t("Норма"), tone: "ok" }
             : { label: t("Внимание"), tone: "warn" }
         }

@@ -62,7 +62,7 @@ export function RedZone() {
         <EmptyState
           icon={PartyPopper}
           title={t("Никого")}
-          description={t("Красная зона пуста — отличная неделя.")}
+          description={t("По доступным данным водителей в красной зоне нет.")}
         />
       ) : (
         <ul>
