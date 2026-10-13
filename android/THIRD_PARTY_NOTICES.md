@@ -28,3 +28,6 @@ corresponding source obligations when distributing a combined application.
 The seven Russian warning WAV files in app/src/main/res/raw were synthesized locally
 using the Windows Microsoft Irina Desktop voice from DriverGuard-authored warning text.
 They are packaged in the APK; Android does not call a speech service or download a voice.
+
+sound_soft.wav and sound_siren.wav are original mathematically synthesized sine-wave
+signals with smooth attack/release envelopes, created for DriverGuard; no sampled audio.

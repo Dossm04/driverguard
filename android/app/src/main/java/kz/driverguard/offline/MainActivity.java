@@ -54,8 +54,10 @@ public final class MainActivity extends ComponentActivity {
     private final ExecutorService inference=Executors.newSingleThreadExecutor();
     private final ExecutorService network=Executors.newSingleThreadExecutor();
     private final AlertPolicy alerts=new AlertPolicy();
+    private final GradedSoundPolicy gradedSound=new GradedSoundPolicy();
+    private AlertSound sounds;private long observedClosureMs;private boolean observedDistractionCritical;
     private long mutedUntil, warningToneUntil;
-    private AlertVoice voice;private boolean voiceEnabled=true;private String warningVoice="fatigue",criticalVoice="eyes";private long nextRestLabel;
+    private AlertVoice voice;private boolean voiceEnabled=false;private String warningVoice="fatigue",criticalVoice="eyes";private long nextRestLabel;
     private TextView qualityText;private Button restButton;
     private TextView eyeMetric,mouthMetric,fatigueMetric,soundState,eyeCalibrationMetric,poseMetric,gpsMetric;
     private LocationTracker location;
@@ -111,7 +113,7 @@ public final class MainActivity extends ComponentActivity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        store=new EventStore(this);voice=new AlertVoice(this);voiceEnabled=getPreferences(MODE_PRIVATE).getBoolean("voice",true);
+        store=new EventStore(this);voice=new AlertVoice(this);sounds=new AlertSound(this);voiceEnabled=getPreferences(MODE_PRIVATE).getBoolean("voice_v10",false);
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         try {tone=new ToneGenerator(AudioManager.STREAM_MUSIC,85);}catch(RuntimeException unavailable){tone=null;}
         var session=new DriverApi(this).session();
@@ -169,10 +171,12 @@ public final class MainActivity extends ComponentActivity {
         soundState=Ui.text(this,sound,"Звук включён",18,Ui.GREEN);
         muteButton=Ui.secondary(this,sound,"Без звука на 30 секунд",()->{
             if(SystemClock.elapsedRealtime()<mutedUntil)mutedUntil=0;else mutedUntil=SystemClock.elapsedRealtime()+30_000;
-            if(tone!=null)tone.stopTone();voice.stop();updateSoundLabel();
+            if(tone!=null)tone.stopTone();voice.stop();sounds.stop();updateSoundLabel();
         });
-        CheckBox speech=new CheckBox(this);speech.setText("Голосовые подсказки без интернета");speech.setTextColor(Ui.TEXT);speech.setChecked(voiceEnabled);sound.addView(speech);speech.setOnCheckedChangeListener((b,on)->{voiceEnabled=on;getPreferences(MODE_PRIVATE).edit().putBoolean("voice",on).apply();if(!on)voice.stop();});
-        Ui.secondary(this,sound,"Проверить громкость",this::testSound);
+        Ui.text(this,sound,"Сначала мягкий сигнал. Если глаза закрыты 5 секунд — заметная сирена. После открытия глаз она прекращается. Громкость регулируется кнопками телефона.",14,Ui.MUTED);
+        CheckBox speech=new CheckBox(this);speech.setText("Дополнительно: русские голосовые подсказки");speech.setTextColor(Ui.TEXT);speech.setChecked(voiceEnabled);sound.addView(speech);speech.setOnCheckedChangeListener((b,on)->{voiceEnabled=on;getPreferences(MODE_PRIVATE).edit().putBoolean("voice_v10",on).apply();if(!on)voice.stop();});
+        Ui.secondary(this,sound,"Послушать мягкий сигнал",()->testSound(false));
+        Ui.secondary(this,sound,"Послушать сирену · 1 секунда",()->testSound(true));
         savedEvents=Ui.text(this,box,"Сохранено за сеанс: 0",14,Ui.MUTED);
         syncStatus=Ui.text(this,box,activeOwner==null?"Локальный режим · войдите в аккаунт для отправки":"События привязаны к вашему аккаунту",14,Ui.MUTED);
         Ui.secondary(this,box,"Журнал событий",this::showJournal);
@@ -181,7 +185,7 @@ public final class MainActivity extends ComponentActivity {
         LinearLayout advanced=Ui.card(this,box);advanced.setVisibility(View.GONE);
         settings.setOnCheckedChangeListener((v,on)->advanced.setVisibility(on?View.VISIBLE:View.GONE));
         Ui.secondary(this,advanced,"Настроить по моему лицу заново",()->{
-            alerts.reset();if(tone!=null)tone.stopTone();
+            alerts.reset();gradedSound.reset();sounds.stop();voice.stop();if(tone!=null)tone.stopTone();
             inference.execute(()->{if(face!=null)face.rules.reset();});
             status.setText("Смотрите прямо с открытыми глазами 3 секунды");
         });
@@ -225,11 +229,17 @@ public final class MainActivity extends ComponentActivity {
     private final Runnable soundTick=new Runnable(){public void run(){
         if(destroyed||!foreground)return;
         long now=SystemClock.elapsedRealtime();var decision=alerts.poll(now,running,now<mutedUntil);
+        var soundDecision=gradedSound.poll(now,decision,observedClosureMs,observedDistractionCritical);
+        sounds.synchronize(decision.active(),running,now<mutedUntil);
         if(now>=nextRestLabel){restButton.setText(RestUi.label(MainActivity.this,store,activeOwner));nextRestLabel=now+1000;}
         voice.clearCritical(decision.active());if((!running&&!voice.testPlaying())||now<mutedUntil)voice.stop();
         if(!decision.active()&&now>=warningToneUntil&&tone!=null)tone.stopTone();
-        if(decision.playPulse()) {if(voiceEnabled)voice.speak(criticalVoice,now);if(!voice.playing())playAlert(600);}
-        else if(decision.warningPulse()){if(voiceEnabled)voice.speak(warningVoice,now);if(!voice.playing()){playAlert(400);warningToneUntil=now+450;}}
+        if(soundDecision.play()){
+            boolean urgent=soundDecision.level()==GradedSoundPolicy.Level.URGENT;
+            if(urgent)voice.stop();
+            boolean spoken=!urgent&&voiceEnabled&&voice.speak(soundDecision.alarm()?criticalVoice:warningVoice,now);
+            if(!spoken&&!sounds.play(soundDecision.level(),soundDecision.alarm(),false)){playAlert(urgent?650:250);warningToneUntil=now+(urgent?700:300);}
+        }
         updateSoundLabel();ui.postDelayed(this,100);
     }};
     private void startPhone() {
@@ -353,6 +363,7 @@ public final class MainActivity extends ComponentActivity {
         ui.post(()->{
             if(destroyed||token!=generation||!running)return;
             alerts.onFrame(frame,result);observedFrames++;
+            observedClosureMs=result.closedMs();observedDistractionCritical=result.distractionCritical();
             criticalVoice=result.closureAlarm()?"eyes":"attention";
             qualityText.setText(quality);
             if(!result.faceVisible())warningVoice="camera";
@@ -380,7 +391,7 @@ public final class MainActivity extends ComponentActivity {
         }
     }
     private String measurementContext(DmsRules.Result r,DrivingSample gps,long frame,int limit,long latency)throws org.json.JSONException{
-        org.json.JSONObject m=new org.json.JSONObject().put("rule_version","android-0.9").put("closed_ms",r.closedMs())
+        org.json.JSONObject m=new org.json.JSONObject().put("rule_version","android-0.10").put("closed_ms",r.closedMs())
             .put("blink_count_60s",r.blinkCount()).put("perclos_pct",Math.max(0,Math.min(100,r.perclos()*100))).put("valid_observation_ms",r.validMs())
             .put("coverage_pct",Math.max(0,Math.min(100,r.validCoverage()*100))).put("yawns_10min",r.yawnCount()).put("jaw_open_ms",r.jawOpenMs())
             .put("away_ms",r.awayMs()).put("missing_ms",r.missingMs()).put("speed_limit_kmh",limit).put("sample_latency_ms",latency);
@@ -393,14 +404,17 @@ public final class MainActivity extends ComponentActivity {
     private static String metric(float value){return Float.isFinite(value)?String.format(java.util.Locale.US,"%.2f",value):"—";}
     private void resetSession(){sessionEventCount=0;observedFrames=0;monitorStarted=SystemClock.elapsedRealtime();savedEvents.setText("Сохранено за сеанс: 0");status.setTextColor(Ui.TEXT);inference.execute(()->lastPhoneSample=0);}
     private void playAlert(int duration){if(tone!=null)tone.startTone(ToneGenerator.TONE_PROP_BEEP2,duration);}
-    private void testSound(){
+    private void testSound(boolean urgent){
+        if(running){Toast.makeText(this,"Завершите наблюдение перед проверкой звука",Toast.LENGTH_LONG).show();return;}
         AudioManager audio=(AudioManager)getSystemService(AUDIO_SERVICE);
-        String message=tone==null?"Звук недоступен. Перезапустите приложение.":audio.getStreamVolume(AudioManager.STREAM_MUSIC)==0?"Громкость мультимедиа — ноль. Увеличьте её кнопками телефона.":"Это проверка звука. Для проверки распознавания запустите камеру.";
-        warningToneUntil=SystemClock.elapsedRealtime()+550;if(voiceEnabled)voice.speak("test",SystemClock.elapsedRealtime());else playAlert(500);Toast.makeText(this,message,Toast.LENGTH_LONG).show();
+        if(audio.getStreamVolume(AudioManager.STREAM_MUSIC)==0){Toast.makeText(this,"Увеличьте громкость мультимедиа кнопками телефона",Toast.LENGTH_LONG).show();return;}
+        mutedUntil=0;voice.stop();
+        if(!sounds.play(urgent?GradedSoundPolicy.Level.URGENT:GradedSoundPolicy.Level.SOFT,false,true)){playAlert(500);warningToneUntil=SystemClock.elapsedRealtime()+550;}
+        Toast.makeText(this,urgent?"Проверка сирены":"Проверка мягкого сигнала",Toast.LENGTH_SHORT).show();
     }
     private void showJournal(){JournalUi.show(this,store,activeOwner);}
     private void stop() {
-        generation++;running=false;if(voice!=null)voice.stop();alerts.reset();warningToneUntil=0;if(tone!=null)tone.stopTone();ui.removeCallbacks(tick);newFrame.set(0);sampledFrame=0;
+        generation++;running=false;if(voice!=null)voice.stop();if(sounds!=null)sounds.stop();alerts.reset();gradedSound.reset();observedClosureMs=0;observedDistractionCritical=false;warningToneUntil=0;if(tone!=null)tone.stopTone();ui.removeCallbacks(tick);newFrame.set(0);sampledFrame=0;
         if(clipRecorder!=null)clipRecorder.stop();
         if(location!=null)location.stop();
         if(cameras!=null)cameras.unbindAll();
@@ -435,7 +449,7 @@ public final class MainActivity extends ComponentActivity {
     private final Runnable syncTick=new Runnable(){public void run(){if(!foreground||destroyed)return;syncNow();ui.postDelayed(this,15_000);}};
     @Override protected void onResume(){super.onResume();foreground=true;ui.post(syncTick);ui.post(soundTick);}
     @Override protected void onPause(){super.onPause();foreground=false;ui.removeCallbacks(syncTick);ui.removeCallbacks(soundTick);stop();if(status!=null)status.setText("Наблюдение остановлено · нажмите «Начать наблюдение»");}
-    @Override protected void onDestroy(){stop();destroyed=true;if(tone!=null)tone.release();if(voice!=null)voice.close();
+    @Override protected void onDestroy(){stop();destroyed=true;if(tone!=null)tone.release();if(voice!=null)voice.close();if(sounds!=null)sounds.close();
         inference.execute(()->{if(face!=null)face.close();if(candidates!=null)candidates.close();});inference.shutdown();
         network.execute(()->{try{if(inference.awaitTermination(30,java.util.concurrent.TimeUnit.SECONDS))store.close();}catch(InterruptedException e){Thread.currentThread().interrupt();}});
         network.shutdown();super.onDestroy();}

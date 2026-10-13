@@ -7,8 +7,8 @@ android {
         applicationId 'kz.driverguard.offline'
         minSdk 26
         targetSdk 35
-        versionCode 9
-        versionName '0.9.0-driver-care'
+        versionCode 10
+        versionName '0.10.0-gentle-alerts'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     androidResources { noCompress += ['task', 'onnx', 'tflite'] }
